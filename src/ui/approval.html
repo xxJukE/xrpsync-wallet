@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Approve transaction · Labs Wallet</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="approval-app">
+    <div class="approval-h">
+        <div style="font-size:14px;letter-spacing:0.30em;color:var(--term-fg);font-weight:700">⚡ APPROVE TRANSACTION</div>
+        <div class="mut" style="font-size:10px;letter-spacing:0.10em;margin-top:4px">A site is requesting your signature</div>
+    </div>
+
+    <div class="approval-b">
+        <div class="card">
+            <div class="card-h"><span class="t">REQUEST</span><span class="m" id="apvSite">—</span></div>
+            <div class="card-b">
+                <div class="kv" id="apvKv"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-h"><span class="t">TRANSACTION</span><span class="m" id="apvType">—</span></div>
+            <div class="card-b">
+                <pre id="apvTxJson" style="font-size:10px;color:var(--term-fg-2);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto"></pre>
+            </div>
+        </div>
+
+        <div class="field" style="margin-top:14px">
+            <label>Master password</label>
+            <input id="apvPw" type="password" autofocus />
+        </div>
+        <div id="apvErr" class="fg-danger" style="font-size:10px;min-height:14px"></div>
+    </div>
+
+    <div class="approval-f">
+        <button class="btn ghost" id="apvReject">Reject</button>
+        <button class="btn" id="apvApprove">Approve & sign</button>
+    </div>
+</div>
+
+<script>
+let _req = null;
+
+window.labs.approval.on((req) => {
+    _req = req;
+    document.getElementById('apvSite').textContent = req.source || '—';
+    document.getElementById('apvType').textContent = req.transaction?.TransactionType || '—';
+    document.getElementById('apvTxJson').textContent = JSON.stringify(req.transaction, null, 2);
+
+    const kv = document.getElementById('apvKv');
+    kv.innerHTML = '';
+    const add = (k, v) => {
+        const ke = document.createElement('div'); ke.className = 'k'; ke.textContent = k;
+        const ve = document.createElement('div'); ve.className = 'v'; ve.textContent = v;
+        kv.appendChild(ke); kv.appendChild(ve);
+    };
+    add('Description', req.description || '—');
+    add('Source', req.source || '—');
+    add('Account', req.transaction?.Account || '—');
+    add('Type', req.transaction?.TransactionType || '—');
+    add('Urgency', req.urgency || 'normal');
+    add('Request ID', req.id || '—');
+});
+
+document.getElementById('apvReject').addEventListener('click', async () => {
+    if (!_req) return;
+    await window.labs.approval.respond({ id: _req.id, approved: false });
+    window.close();
+});
+
+document.getElementById('apvApprove').addEventListener('click', async () => {
+    if (!_req) return;
+    const pw = document.getElementById('apvPw').value;
+    if (!pw) { document.getElementById('apvErr').textContent = 'enter master password'; return; }
+    document.getElementById('apvErr').textContent = '';
+    try {
+        await window.labs.approval.respond({ id: _req.id, approved: true, password: pw, allWalletsAddress: _req.transaction?.Account });
+        window.close();
+    } catch (err) {
+        document.getElementById('apvErr').textContent = String(err.message || err);
+    }
+});
+
+document.getElementById('apvPw').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('apvApprove').click();
+});
+</script>
+
+</body>
+</html>

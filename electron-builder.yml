@@ -1,0 +1,28 @@
+# electron-builder config — also embedded in package.json for convenience.
+# Build: `npm run build:win` / `:mac` / `:linux`. Output lands in dist/.
+appId: com.labs.wallet
+productName: Labs Wallet
+directories:
+  output: dist
+files:
+  - main.js
+  - preload.js
+  - src/**/*
+  - assets/**/*
+  - package.json
+win:
+  target: nsis
+  icon: assets/icon.ico
+mac:
+  target: dmg
+  icon: assets/icon.icns
+  category: public.app-category.finance
+linux:
+  target: AppImage
+  icon: assets/icon.png
+  category: Finance
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
