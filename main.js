@@ -142,11 +142,12 @@ function registerIpc() {
         await WalletStore.setMasterPassword(password);
         isLocked = false;
         resetLockTimer();
+        BridgeServer?.broadcastWalletInfo();
         return { ok: true };
     });
     ipcMain.handle('lock:unlock', async (_e, password) => {
         const ok = await WalletStore.unlock(password);
-        if (ok) { isLocked = false; resetLockTimer(); }
+        if (ok) { isLocked = false; resetLockTimer(); BridgeServer?.broadcastWalletInfo(); }
         return { ok };
     });
     ipcMain.handle('lock:lock', () => { lockApp(); return { ok: true }; });
@@ -262,12 +263,41 @@ function startBridges() {
     BridgeServer.start({
         port: 17760,
         onSignRequest: (req) => onSignRequest(req, 'local'),
+        getWalletInfoSync: getWalletInfoSync,
+        getBalances:        getWalletBalances,
     });
 
     // Remote relay (wallet → KyOpSec server) — only connects when configured
     BridgeRemote.start({
         onSignRequest: (req) => onSignRequest(req, 'remote'),
     });
+}
+
+// Synchronous wallet identity — used for the immediate greeting on browser connect.
+// MUST NOT throw, MUST NOT block. XRPL is not consulted here.
+function getWalletInfoSync() {
+    console.log('[main] getWalletInfoSync: isLocked=' + isLocked);
+    if (isLocked) return { locked: true };
+    let address = null;
+    try { address = WalletStore.defaultAddress(); }
+    catch (e) { console.warn('[main] defaultAddress threw', e?.message || e); }
+    console.log('[main] getWalletInfoSync: address=' + (address || 'null'));
+    if (!address) return null;
+    return { address, locked: false };
+}
+
+// Async balance fetch — runs fire-and-forget after the greeting goes out. Failure
+// is normal for unfunded (0 XRP) wallets; the bridge logs and moves on.
+async function getWalletBalances(address) {
+    if (!address) throw new Error('address_required');
+    const bal = await XrplBalances.fetch(address);
+    const rlusd = (bal.tokens || []).find(t => t.currency === 'RLUSD');
+    const out = {
+        XRP:   bal.xrp || '0',
+        RLUSD: rlusd ? rlusd.value : '0',
+    };
+    console.log('[main] getWalletBalances:', address, out);
+    return out;
 }
 
 async function onSignRequest(req, source) {
