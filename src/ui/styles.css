@@ -151,6 +151,11 @@ button.btn.warn { border-color: var(--term-warn); color: var(--term-warn); }
 button.btn.warn:hover { background: var(--term-warn); color: var(--term-bg); }
 button.btn.ghost { border-color: var(--term-border); color: var(--term-muted); }
 button.btn.ghost:hover { background: var(--term-border); color: var(--term-fg); }
+button.btn.buy-xrp {
+    background: linear-gradient(120deg, #00ffff 0%, #00ff88 100%);
+    color: #001a14; border-color: #00ff88; font-weight: 700;
+}
+button.btn.buy-xrp:hover { filter: brightness(1.10); box-shadow: 0 0 12px rgba(0,255,136,0.40); background: linear-gradient(120deg, #00ffff 0%, #00ff88 100%); color: #001a14; }
 button.btn:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; color: var(--term-muted); border-color: var(--term-muted); }
 
 /* ── Tables ──────────────────────────────────────────────────────────── */

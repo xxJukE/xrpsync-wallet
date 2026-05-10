@@ -235,6 +235,19 @@ function registerIpc() {
     }));
     ipcMain.handle('bridge:configure-remote', (_e, { url, token }) => BridgeRemote.configure({ url, token }));
 
+    // Fund Wallet — opens lab.kyopsec.com/buy-xrp in the user's default browser.
+    // Restricted to the Labs Platform host so a compromised renderer can't open arbitrary
+    // URLs. Address is passed through unchanged so the on-ramp can pre-fill it.
+    ipcMain.handle('onramp:open', async (_e, { address } = {}) => {
+        const base = 'https://lab.kyopsec.com/buy-xrp';
+        const u = new URL(base);
+        if (address && /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(String(address))) {
+            u.searchParams.set('address', address);
+        }
+        await shell.openExternal(u.toString());
+        return { ok: true };
+    });
+
     // Approval flow — UI calls back into main with the user's decision
     ipcMain.handle('approval:respond', async (_e, { id, approved, password, allWalletsAddress }) => {
         await BridgeProtocol.handleApproval({

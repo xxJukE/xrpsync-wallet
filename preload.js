@@ -64,6 +64,11 @@ contextBridge.exposeInMainWorld('labs', {
         configureRemote:  (url, token) => invoke('bridge:configure-remote', { url, token }),
     },
 
+    // ── Fiat on-ramp deep-link ──
+    onramp: {
+        open: (address) => invoke('onramp:open', { address }),
+    },
+
     // ── Approval flow ──
     approval: {
         respond: (payload) => invoke('approval:respond', payload),

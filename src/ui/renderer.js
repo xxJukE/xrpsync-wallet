@@ -204,6 +204,14 @@ $('wSendBtn').addEventListener('click', () => {
     showPane('send');
 });
 
+// Fund Wallet — open lab.kyopsec.com/buy-xrp in the default browser with the
+// active wallet address pre-filled. Settlement happens on-ramp side; the
+// wallet just refreshes balances when the user comes back.
+$('wFundBtn')?.addEventListener('click', async () => {
+    try { await window.labs.onramp.open(state.activeAddress); }
+    catch (e) { console.error('fund-wallet open failed', e); }
+});
+
 $('sndCancel').addEventListener('click', () => showPane('wallet'));
 
 $('sndSubmit').addEventListener('click', async () => {
