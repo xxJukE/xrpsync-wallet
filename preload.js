@@ -69,6 +69,17 @@ contextBridge.exposeInMainWorld('labs', {
         open: (address) => invoke('onramp:open', { address }),
     },
 
+    // ── Labs account / subscription ──
+    account: {
+        status:       ()                          => invoke('account:status'),
+        login:        (email, password, opts)     => invoke('account:login', { email, password, ...(opts || {}) }),
+        logout:       ()                          => invoke('account:logout'),
+        refresh:      ()                          => invoke('account:refresh'),
+        subscription: ()                          => invoke('account:subscription'),
+        linkAddress:  (address, switchExisting)   => invoke('account:link-address', { address, switchExisting }),
+        upgrade:      (tierSlug, address, password) => invoke('account:upgrade', { tierSlug, address, password }),
+    },
+
     // ── Approval flow ──
     approval: {
         respond: (payload) => invoke('approval:respond', payload),

@@ -47,6 +47,20 @@
         <div class="item" data-pane="auto-sign">⚙ Auto-sign rules</div>
         <div class="item" data-pane="backup">⤓ Backup & restore</div>
         <div class="item" data-pane="settings">⚙ Settings</div>
+
+        <div class="h" style="margin-top:14px">Account</div>
+        <div id="acctSidebar">
+            <div id="acctSidebarOut">
+                <div class="mut" style="padding:4px 14px;font-size:10px">Not logged in</div>
+                <div class="add-btn" data-pane="account-login" style="margin-top:6px">→ Log in to Labs</div>
+            </div>
+            <div id="acctSidebarIn" class="hidden">
+                <div class="item" data-pane="account-manage" id="acctSidebarRow">
+                    <div><span class="acct-dot"></span><span id="acctSidebarName">—</span> <span id="acctSidebarTier" class="acct-pill">FREE</span></div>
+                    <small class="mut" id="acctSidebarMeta">—</small>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="lw-main" id="main">
@@ -221,6 +235,93 @@
                     </div>
                     <button class="btn" id="iwImport">Import</button>
                     <div id="iwResult" class="mut" style="margin-top:14px;font-size:10px"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="paneAccountLogin" class="pane hidden">
+            <div class="card">
+                <div class="card-h"><span class="t">LOG IN TO LABS</span><span class="m">your account · subscription</span></div>
+                <div class="card-b">
+                    <p class="mut" style="font-size:10px;margin-bottom:12px">Log in with your <b>lab.kyopsec.com</b> account to manage your subscription, pay tier upgrades on-ledger with XRP, and unlock premium features on the website.</p>
+                    <div class="field">
+                        <label for="acctEmail">Email</label>
+                        <input id="acctEmail" type="email" autocomplete="email" />
+                    </div>
+                    <div class="field">
+                        <label for="acctPassword">Password</label>
+                        <input id="acctPassword" type="password" autocomplete="current-password" />
+                    </div>
+                    <div class="row" style="gap:8px">
+                        <button class="btn" id="acctLoginBtn">Log in</button>
+                        <button class="btn ghost" id="acctRegisterBtn" type="button">Create account →</button>
+                    </div>
+                    <div id="acctLoginStatus" class="mut" style="margin-top:12px;font-size:10px;min-height:14px"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="paneAccountManage" class="pane hidden">
+            <div class="card">
+                <div class="card-h"><span class="t" id="acctManageTitle">YOUR ACCOUNT</span><span class="m" id="acctManageMeta">—</span></div>
+                <div class="card-b">
+                    <div class="row" style="gap:24px;flex-wrap:wrap;align-items:flex-start">
+                        <div>
+                            <div class="mut" style="font-size:9px;letter-spacing:0.10em">SIGNED IN AS</div>
+                            <div id="acctName" style="font-size:16px;font-weight:700;color:var(--term-fg);margin-top:4px">—</div>
+                            <div id="acctEmailDisp" class="mut" style="font-size:10px;margin-top:2px">—</div>
+                        </div>
+                        <div>
+                            <div class="mut" style="font-size:9px;letter-spacing:0.10em">LINKED WALLET</div>
+                            <div id="acctLinked" class="tabular" style="font-size:11px;color:var(--term-fg-2);margin-top:4px">—</div>
+                        </div>
+                        <div class="spacer"></div>
+                        <button class="btn ghost" id="acctRefreshBtn">↻ Refresh</button>
+                        <button class="btn danger" id="acctLogoutBtn">Log out</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-h"><span class="t">SUBSCRIPTION</span><span class="m" id="acctSubMeta">—</span></div>
+                <div class="card-b">
+                    <div class="wallet-row" style="display:flex;justify-content:space-between;align-items:center;padding:1px 0;font-size:10px;margin-bottom:14px">
+                        <span class="mut">CURRENT PLAN</span>
+                        <span style="font-weight:700;color:var(--term-fg)" id="acctCurrentTier">FREE</span>
+                    </div>
+                    <div id="acctTierGrid" class="acct-tier-grid"></div>
+                </div>
+            </div>
+
+            <div id="acctUpgradeBlock" class="card hidden">
+                <div class="card-h"><span class="t" id="acctUpgradeTitle">UPGRADE</span></div>
+                <div class="card-b">
+                    <div class="kv">
+                        <span class="k">SEND</span><span class="v" id="acctPayAmount">—</span>
+                        <span class="k">FROM</span><span class="v" id="acctPayFrom">—</span>
+                        <span class="k">TO</span><span class="v" id="acctPayTo">—</span>
+                        <span class="k">MEMO</span><span class="v" id="acctPayMemo" style="font-size:9px">—</span>
+                    </div>
+                    <div class="hr"></div>
+                    <div class="field">
+                        <label for="acctPayPw">Master password (to sign)</label>
+                        <input id="acctPayPw" type="password" />
+                    </div>
+                    <div class="row" style="gap:8px">
+                        <button class="btn" id="acctPayConfirm">Confirm & pay</button>
+                        <button class="btn ghost" id="acctPayCancel" type="button">Cancel</button>
+                    </div>
+                    <div id="acctPayStatus" class="mut" style="margin-top:12px;font-size:10px;min-height:14px"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-h"><span class="t">PAYMENT HISTORY</span><span class="m" id="acctPayMeta">—</span></div>
+                <div class="card-b" style="padding:0">
+                    <table class="t">
+                        <thead><tr><th>WHEN</th><th>TIER</th><th class="num">AMOUNT</th><th>STATUS</th><th>TX</th></tr></thead>
+                        <tbody id="acctPayBody"><tr><td colspan="5" class="mut" style="text-align:center;padding:18px">no payments yet</td></tr></tbody>
+                    </table>
                 </div>
             </div>
         </div>

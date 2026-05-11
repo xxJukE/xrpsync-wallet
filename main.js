@@ -12,6 +12,7 @@ const path = require('path');
 let WalletStore, WalletGenerate, WalletImport, WalletSign, WalletBackup, AutoSign;
 let XrplConnection, XrplBalances, XrplHistory, XrplTrustlines, XrplSubmit;
 let BridgeServer, BridgeRemote, BridgeProtocol;
+let AccountApi, AccountSession, AccountPayment;
 
 let mainWindow = null;
 let approvalWindow = null;
@@ -119,8 +120,12 @@ app.whenReady().then(() => {
     BridgeServer    = require('./src/bridge/server');
     BridgeRemote    = require('./src/bridge/remote');
     BridgeProtocol  = require('./src/bridge/protocol');
+    AccountApi      = require('./src/account/api');
+    AccountSession  = require('./src/account/session');
+    AccountPayment  = require('./src/account/payment');
 
     WalletStore.init({ name: 'labs-wallet-data' });
+    AccountSession.init();
     lockMs = (WalletStore.getPref('lock_ms') || 5 * 60 * 1000);
 
     createMainWindow();
@@ -248,6 +253,88 @@ function registerIpc() {
         return { ok: true };
     });
 
+    // ── Labs account (subscription / login) ──
+    ipcMain.handle('account:status', () => ({
+        logged_in: AccountSession.isLoggedIn(),
+        user:      AccountSession.getUser(),
+    }));
+
+    ipcMain.handle('account:login', async (_e, { email, password, walletAddress, label }) => {
+        const resp = await AccountApi.login(email, password, {
+            walletAddress: walletAddress || (WalletStore.hasMasterPassword() && !isLocked ? WalletStore.defaultAddress() : null),
+            label,
+        });
+        if (!resp.ok || !resp.body.ok) {
+            return { ok: false, error: (resp.body && resp.body.error) || ('login failed: HTTP ' + resp.status) };
+        }
+        AccountSession.setSession(resp.body.token, resp.body.user);
+        // After login, refresh the user payload — captures any auto-link side-effect.
+        try {
+            const me = await AccountApi.me(resp.body.token);
+            if (me.ok && me.body.user) AccountSession.setSession(null, me.body.user);
+        } catch (_) {}
+        // Broadcast a fresh greeting so the website sees the tier immediately.
+        try { BridgeServer.broadcastWalletInfo(); } catch (_) {}
+        return { ok: true, user: AccountSession.getUser() };
+    });
+
+    ipcMain.handle('account:logout', async () => {
+        const token = AccountSession.getToken();
+        if (token) { try { await AccountApi.logout(token); } catch (_) {} }
+        AccountSession.clear();
+        try { BridgeServer.broadcastWalletInfo(); } catch (_) {}
+        return { ok: true };
+    });
+
+    ipcMain.handle('account:refresh', async () => {
+        const token = AccountSession.getToken();
+        if (!token) return { ok: false, error: 'not logged in' };
+        const me = await AccountApi.me(token);
+        if (me.status === 401) { AccountSession.clear(); return { ok: false, error: 'session expired' }; }
+        if (!me.ok || !me.body.ok) return { ok: false, error: (me.body && me.body.error) || 'refresh failed' };
+        AccountSession.setSession(null, me.body.user);
+        return { ok: true, user: me.body.user };
+    });
+
+    ipcMain.handle('account:subscription', async () => {
+        const token = AccountSession.getToken();
+        if (!token) return { ok: false, error: 'not logged in' };
+        const r = await AccountApi.subscription(token);
+        if (r.status === 401) { AccountSession.clear(); return { ok: false, error: 'session expired' }; }
+        if (!r.ok) return { ok: false, error: (r.body && r.body.error) || 'fetch failed' };
+        return r.body;
+    });
+
+    ipcMain.handle('account:link-address', async (_e, { address, switchExisting } = {}) => {
+        const token = AccountSession.getToken();
+        if (!token) return { ok: false, error: 'not logged in' };
+        const r = await AccountApi.linkAddress(token, address, { switchExisting: !!switchExisting });
+        return r.body || { ok: false, error: 'link failed' };
+    });
+
+    ipcMain.handle('account:upgrade', async (_e, { tierSlug, address, password }) => {
+        ensureUnlocked();
+        const token = AccountSession.getToken();
+        if (!token) throw new Error('not logged in to Labs');
+        const result = await AccountPayment.upgrade({
+            token,
+            tierSlug,
+            address,
+            password,
+            store:  WalletStore,
+            sign:   WalletSign,
+            xrpl:   XrplConnection,
+            submit: XrplSubmit,
+        });
+        // Refresh the cached user payload so the sidebar updates without a reload.
+        try {
+            const me = await AccountApi.me(token);
+            if (me.ok && me.body.user) AccountSession.setSession(null, me.body.user);
+        } catch (_) {}
+        try { BridgeServer.broadcastWalletInfo(); } catch (_) {}
+        return result;
+    });
+
     // Approval flow — UI calls back into main with the user's decision
     ipcMain.handle('approval:respond', async (_e, { id, approved, password, allWalletsAddress }) => {
         await BridgeProtocol.handleApproval({
@@ -296,7 +383,22 @@ function getWalletInfoSync() {
     catch (e) { console.warn('[main] defaultAddress threw', e?.message || e); }
     console.log('[main] getWalletInfoSync: address=' + (address || 'null'));
     if (!address) return null;
-    return { address, locked: false };
+
+    // Attach the Labs account tier (if logged in) so the website knows
+    // immediately what features to unlock — no extra round-trip needed.
+    let account = null;
+    try {
+        const u = AccountSession?.getUser();
+        if (u && AccountSession.isLoggedIn()) {
+            account = {
+                id: u.id, name: u.name, email: u.email,
+                tier: u.tier, is_pro: !!u.is_pro, is_growth: !!u.is_growth,
+                expires_at: u.expires_at || null,
+            };
+        }
+    } catch (e) { /* swallow — never block the greeting */ }
+
+    return { address, locked: false, account };
 }
 
 // Async balance fetch — runs fire-and-forget after the greeting goes out. Failure

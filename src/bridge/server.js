@@ -101,11 +101,14 @@ function greetSync(ws) {
     }
 
     // Greeting fires NOW. Zero balances by default — XRPL failure cannot block this.
+    // Includes the Labs account tier (if logged in) so the website unlocks
+    // premium features on first contact without an extra HTTP round-trip.
     trySend(ws, {
         type: 'wallet_connected',
         address: info.address,
         balances: { XRP: '0', RLUSD: '0' },
         status: 'connected',
+        account: info.account || null,
         timestamp: new Date().toISOString(),
     }, 'wallet_connected');
 

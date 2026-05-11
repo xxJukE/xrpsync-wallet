@@ -74,13 +74,17 @@ function showPane(name) {
         'new-wallet': 'paneNewWallet',
         'import-wallet': 'paneImportWallet',
         send: 'paneSend',
+        'account-login':  'paneAccountLogin',
+        'account-manage': 'paneAccountManage',
     };
     const el = $(map[name] || 'paneWelcome');
     if (el) el.classList.remove('hidden');
-    document.querySelectorAll('.lw-side .item').forEach(i => i.classList.toggle('is-active', i.dataset.pane === name));
+    document.querySelectorAll('.lw-side .item, .lw-side .add-btn[data-pane]').forEach(i => i.classList.toggle('is-active', i.dataset.pane === name));
+    if (name === 'account-manage') refreshAccountManage();
 }
 
-document.querySelectorAll('.lw-side .item').forEach(i => i.addEventListener('click', () => {
+document.querySelectorAll('.lw-side .item, .lw-side .add-btn[data-pane]').forEach(i => i.addEventListener('click', () => {
+    if (!i.dataset.pane) return;
     showPane(i.dataset.pane);
     if (i.dataset.pane === 'auto-sign') refreshAutoSign();
     if (i.dataset.pane === 'settings') refreshSettings();
@@ -419,6 +423,234 @@ window.labs.on.autoSigned((p) => {
     if (state.pane === 'auto-sign') refreshAutoSign();
 });
 
+// ── Labs account ────────────────────────────────────────────────────────────
+const account = {
+    state: { user: null, subscription: null, pendingTier: null, pendingInitiate: null },
+
+    async boot() {
+        const s = await window.labs.account.status();
+        this.state.user = s.user;
+        this.renderSidebar();
+        if (s.logged_in) {
+            // Confirm token still works — also picks up any tier change since last open.
+            const r = await window.labs.account.refresh().catch(() => ({ ok: false }));
+            if (r.ok) this.state.user = r.user;
+            else { this.state.user = null; }
+            this.renderSidebar();
+        }
+    },
+
+    renderSidebar() {
+        const out = $('acctSidebarOut'), inn = $('acctSidebarIn');
+        if (!out || !inn) return;
+        if (!this.state.user) {
+            out.classList.remove('hidden');
+            inn.classList.add('hidden');
+            return;
+        }
+        out.classList.add('hidden');
+        inn.classList.remove('hidden');
+        const u = this.state.user;
+        $('acctSidebarName').textContent = u.name || u.email || '—';
+        const tierEl = $('acctSidebarTier');
+        tierEl.textContent = (u.tier || 'free').toUpperCase();
+        tierEl.classList.remove('is-pro', 'is-growth');
+        if (u.tier === 'pro') tierEl.classList.add('is-pro');
+        if (u.tier === 'growth') tierEl.classList.add('is-growth');
+        let meta = u.tier === 'free' ? 'Free tier' : null;
+        if (!meta && u.expires_at) {
+            const d = new Date(u.expires_at);
+            meta = 'Expires ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+        $('acctSidebarMeta').textContent = meta || '—';
+        try { document.title = 'Labs Wallet — ' + (u.name || u.email) + (u.tier !== 'free' ? ' [' + u.tier.toUpperCase() + ']' : ''); } catch (_) {}
+    },
+
+    async login() {
+        const email = $('acctEmail').value.trim();
+        const pw = $('acctPassword').value;
+        if (!email || !pw) { $('acctLoginStatus').innerHTML = '<span class="fg-danger">fill both fields</span>'; return; }
+        $('acctLoginStatus').textContent = 'authenticating…';
+        const r = await window.labs.account.login(email, pw, { walletAddress: state.activeAddress });
+        if (!r.ok) {
+            $('acctLoginStatus').innerHTML = '<span class="fg-danger">' + (r.error || 'login failed') + '</span>';
+            return;
+        }
+        this.state.user = r.user;
+        $('acctPassword').value = '';
+        $('acctLoginStatus').innerHTML = '<span class="fg-profit">welcome, ' + (r.user.name || r.user.email) + '</span>';
+        this.renderSidebar();
+        setTimeout(() => showPane('account-manage'), 600);
+    },
+
+    async logout() {
+        if (!window.confirm('Log out of your Labs account on this device?')) return;
+        await window.labs.account.logout();
+        this.state.user = null;
+        this.state.subscription = null;
+        this.renderSidebar();
+        showPane('account-login');
+    },
+
+    async openManage() {
+        await this.refresh();
+    },
+
+    async refresh() {
+        const r = await window.labs.account.subscription();
+        if (!r || !r.ok) {
+            $('acctManageMeta').textContent = (r && r.error) || 'fetch failed';
+            return;
+        }
+        this.state.subscription = r;
+        const u = r.user;
+        this.state.user = u;
+        this.renderSidebar();
+
+        $('acctName').textContent = u.name || '—';
+        $('acctEmailDisp').textContent = u.email || '—';
+        $('acctLinked').textContent = u.linked_wallet ? (u.linked_wallet.slice(0,6) + '…' + u.linked_wallet.slice(-4)) : 'not linked';
+
+        const active = r.active;
+        $('acctSubMeta').textContent = active ? (active.tier_slug.toUpperCase() + ' · expires ' + new Date(active.expires_at).toLocaleDateString()) : 'free';
+        $('acctCurrentTier').textContent = (u.tier || 'free').toUpperCase();
+
+        // Render tier cards
+        const grid = $('acctTierGrid');
+        grid.innerHTML = '';
+        (r.tiers || []).forEach(t => {
+            const isCurrent = t.slug === u.tier;
+            const isRecommended = t.slug === 'pro' && !isCurrent;
+            const isPaid = (+t.price_xrp) > 0;
+            const usd = r.xrp_usd ? (t.price_xrp * r.xrp_usd) : (t.price_usd || 0);
+            const feats = (t.features || {});
+            const include = [
+                feats.bot_detection && 'Bot Detection',
+                feats.wall_tracker && 'Wall Tracking',
+                feats.external_prices && 'External Prices',
+                feats.momentum && 'Momentum',
+                feats.growth_engine && 'Growth Engine',
+                feats.auto_sign && 'Auto-Sign',
+                feats.priority_alerts && 'Priority Alerts',
+                feats.bot_alerts && 'Bot Alerts',
+            ].filter(Boolean);
+            const featsHtml = t.slug === 'free'
+                ? '<li>XRP News</li><li>Ecosystem Map</li><li>Community</li><li>Full Chart</li><li>Full Orderbook</li><li>Labs Wallet</li><li>Manual Trade</li>'
+                : (t.slug === 'pro'
+                    ? '<li>Everything Free +</li>' + include.slice(0,4).map(f => `<li>${f}</li>`).join('')
+                    : '<li>Everything Pro +</li>' + include.slice(4).map(f => `<li>${f}</li>`).join(''));
+
+            const ribbon = isCurrent ? 'Current' : (isRecommended ? 'Recommended' : '');
+            const ctaLabel = isCurrent ? 'Current plan' : (isPaid ? `Pay ${t.price_xrp} XRP` : 'Free');
+            const ctaAttrs = isCurrent
+                ? 'disabled'
+                : (isPaid ? `data-upgrade="${t.slug}" data-xrp="${t.price_xrp}"` : 'disabled');
+
+            const card = document.createElement('div');
+            card.className = 'acct-tier-card' + (isCurrent ? ' is-current' : '') + (isRecommended ? ' is-recommended' : '');
+            card.innerHTML = `
+                ${ribbon ? `<span class="ribbon">${ribbon}</span>` : ''}
+                <div class="name">${t.name}</div>
+                <div class="price">${isPaid ? t.price_xrp + ' <small>XRP/mo</small>' : 'Free'}</div>
+                ${isPaid ? `<div class="usd">≈ $${usd.toFixed(2)}/mo</div>` : '<div class="usd">forever</div>'}
+                <ul>${featsHtml}</ul>
+                <button class="cta" type="button" ${ctaAttrs}>${ctaLabel}</button>
+            `;
+            const btn = card.querySelector('button[data-upgrade]');
+            if (btn) btn.addEventListener('click', () => this.beginUpgrade(t.slug, t.price_xrp));
+            grid.appendChild(card);
+        });
+
+        // Payment history
+        const tb = $('acctPayBody');
+        if (!r.payments || !r.payments.length) {
+            tb.innerHTML = '<tr><td colspan="5" class="mut" style="text-align:center;padding:18px">no payments yet</td></tr>';
+            $('acctPayMeta').textContent = '—';
+        } else {
+            tb.innerHTML = r.payments.map(p => {
+                const d = p.confirmed_at || p.created_at;
+                const status = p.status === 'applied' || p.status === 'confirmed'
+                    ? '<span class="fg-profit">' + p.status + '</span>'
+                    : (p.status === 'invalid' ? '<span class="fg-danger">invalid</span>' : '<span class="mut">' + p.status + '</span>');
+                const tx = p.tx_hash ? p.tx_hash.slice(0,10) + '…' : '—';
+                const amt = p.amount_xrp != null ? Number(p.amount_xrp).toFixed(4) + ' XRP' : '—';
+                return `<tr><td>${d ? new Date(d).toLocaleString() : '—'}</td><td>${p.tier_slug.toUpperCase()}</td><td class="num">${amt}</td><td>${status}</td><td class="mut">${tx}</td></tr>`;
+            }).join('');
+            $('acctPayMeta').textContent = r.payments.length + ' total';
+        }
+
+        // If a tier change just happened, clear the upgrade block.
+        $('acctUpgradeBlock').classList.add('hidden');
+    },
+
+    async beginUpgrade(tierSlug, xrp) {
+        if (!state.activeAddress) {
+            alert('Open a wallet first — that\'s the address the payment will come from.');
+            return;
+        }
+        $('acctUpgradeTitle').textContent = 'UPGRADE TO ' + tierSlug.toUpperCase();
+        $('acctPayAmount').textContent = xrp + ' XRP';
+        $('acctPayFrom').textContent = state.activeAddress;
+        $('acctPayTo').textContent = '— (computed by server)';
+        $('acctPayMemo').textContent = 'labs_sub:' + tierSlug + ':…';
+        $('acctPayPw').value = '';
+        $('acctPayStatus').textContent = '';
+        $('acctUpgradeBlock').classList.remove('hidden');
+        this.state.pendingTier = tierSlug;
+        $('acctUpgradeBlock').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    },
+
+    cancelUpgrade() {
+        $('acctUpgradeBlock').classList.add('hidden');
+        this.state.pendingTier = null;
+    },
+
+    async confirmUpgrade() {
+        const tierSlug = this.state.pendingTier;
+        if (!tierSlug) return;
+        const password = $('acctPayPw').value;
+        if (!password) { $('acctPayStatus').innerHTML = '<span class="fg-danger">master password required</span>'; return; }
+
+        $('acctPayStatus').textContent = 'signing & submitting to XRPL…';
+        $('acctPayConfirm').disabled = true;
+        try {
+            const r = await window.labs.account.upgrade(tierSlug, state.activeAddress, password);
+            if (r && r.tx_hash) {
+                const link = `<a href="https://livenet.xrpl.org/transactions/${r.tx_hash}" target="_blank">${r.tx_hash.slice(0,12)}…</a>`;
+                if (r.verified) {
+                    $('acctPayStatus').innerHTML = `<span class="fg-profit">✓ ${r.tier.toUpperCase()} active until ${new Date(r.expires_at).toLocaleDateString()} — tx ${link}</span>`;
+                } else {
+                    $('acctPayStatus').innerHTML = `<span class="fg-warn">submitted to XRPL — server will confirm shortly · tx ${link}</span>`;
+                }
+                $('acctPayPw').value = '';
+                this.state.pendingTier = null;
+                // Refresh the manage pane so payment history + tier badge update.
+                setTimeout(() => this.refresh(), 1500);
+            } else {
+                $('acctPayStatus').innerHTML = '<span class="fg-danger">no tx hash returned</span>';
+            }
+        } catch (e) {
+            $('acctPayStatus').innerHTML = '<span class="fg-danger">' + (e?.message || e) + '</span>';
+        } finally {
+            $('acctPayConfirm').disabled = false;
+        }
+    },
+};
+
+async function refreshAccountManage() {
+    await account.openManage();
+}
+
+$('acctLoginBtn')?.addEventListener('click', () => account.login());
+$('acctPassword')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') account.login(); });
+$('acctEmail')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('acctPassword').focus(); });
+$('acctRegisterBtn')?.addEventListener('click', () => { try { window.open('https://lab.kyopsec.com/register', '_blank'); } catch (_) {} });
+$('acctLogoutBtn')?.addEventListener('click', () => account.logout());
+$('acctRefreshBtn')?.addEventListener('click', () => account.refresh());
+$('acctPayCancel')?.addEventListener('click', () => account.cancelUpgrade());
+$('acctPayConfirm')?.addEventListener('click', () => account.confirmUpgrade());
+$('acctPayPw')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') account.confirmUpgrade(); });
+
 // ── Boot ────────────────────────────────────────────────────────────────────
 async function refreshAll() {
     await refreshWallets();
@@ -427,6 +659,7 @@ async function refreshAll() {
         await openWallet(state.activeAddress);
     }
     refreshStatus();
+    account.boot();
 }
 
 bootLockState();

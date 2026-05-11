@@ -188,6 +188,66 @@ table.t .num { text-align: right; font-variant-numeric: tabular-nums; }
 .lock-card .ttl { font-size: 14px; letter-spacing: 0.30em; color: var(--term-fg); text-align: center; margin-bottom: 24px; }
 .lock-card .err { color: var(--term-danger); font-size: 10px; margin-top: 8px; min-height: 14px; }
 
+/* ── Account sidebar + manage pane ──────────────────────────────────── */
+#acctSidebarRow { padding: 6px 14px; cursor: pointer; }
+#acctSidebarRow:hover { background: rgba(0,255,136,0.04); }
+#acctSidebarName { color: var(--term-fg); font-weight: 600; letter-spacing: 0.02em; }
+.acct-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--term-fg); box-shadow: 0 0 4px var(--term-fg); margin-right: 5px; vertical-align: middle; }
+.acct-pill { font-size: 8px; letter-spacing: 0.18em; padding: 1px 5px; border: 1px solid currentColor; border-radius: 2px; color: var(--term-muted); margin-left: 4px; }
+.acct-pill.is-pro    { color: var(--term-accent); background: rgba(0,255,255,0.06); border-color: var(--term-accent); }
+.acct-pill.is-growth { color: var(--term-profit); background: rgba(0,255,68,0.08); border-color: var(--term-profit); box-shadow: 0 0 6px rgba(0,255,68,0.25); }
+
+.acct-tier-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.acct-tier-card {
+    border: 1px solid var(--term-border);
+    border-radius: 4px;
+    padding: 12px 12px 14px;
+    background: rgba(0,0,0,0.30);
+    display: flex; flex-direction: column;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.acct-tier-card.is-current { border-color: var(--term-profit); box-shadow: 0 0 10px rgba(0,255,68,0.18); }
+.acct-tier-card.is-recommended { border-color: var(--term-fg); box-shadow: 0 0 10px rgba(0,255,136,0.14); }
+.acct-tier-card .name { font-size: 10px; letter-spacing: 0.22em; color: var(--term-muted); text-transform: uppercase; }
+.acct-tier-card.is-current .name { color: var(--term-profit); }
+.acct-tier-card.is-recommended .name { color: var(--term-fg); }
+.acct-tier-card .price { font-size: 20px; font-weight: 700; color: var(--term-fg); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.acct-tier-card .price small { font-size: 9px; color: var(--term-muted); font-weight: 400; letter-spacing: 0.12em; margin-left: 3px; }
+.acct-tier-card .usd { font-size: 9px; color: var(--term-muted); }
+.acct-tier-card ul { list-style: none; padding: 0; margin: 10px 0 12px; flex: 1 1 auto; }
+.acct-tier-card li { font-size: 9px; line-height: 1.7; color: var(--term-fg-2); padding-left: 12px; position: relative; }
+.acct-tier-card li::before { content: '✓'; color: var(--term-profit); position: absolute; left: 0; font-weight: 700; }
+.acct-tier-card .ribbon {
+    align-self: flex-start;
+    font-size: 7px;
+    letter-spacing: 0.20em;
+    padding: 1px 6px;
+    margin-bottom: 4px;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    text-transform: uppercase;
+    color: var(--term-muted);
+}
+.acct-tier-card.is-current .ribbon { color: var(--term-profit); }
+.acct-tier-card.is-recommended .ribbon { color: var(--term-fg); }
+.acct-tier-card .cta {
+    background: transparent;
+    border: 1px solid var(--term-fg);
+    color: var(--term-fg);
+    font-family: inherit;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 7px 8px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.acct-tier-card .cta:hover { background: var(--term-fg); color: var(--term-bg); }
+.acct-tier-card.is-current .cta { border-color: var(--term-muted); color: var(--term-muted); cursor: default; }
+.acct-tier-card.is-current .cta:hover { background: transparent; color: var(--term-muted); }
+.acct-tier-card .cta:disabled { opacity: 0.45; cursor: not-allowed; }
+
 /* ── Pills / badges ──────────────────────────────────────────────────── */
 .pill {
     display: inline-block; padding: 1px 6px; font-size: 9px;
