@@ -19,13 +19,52 @@ const shortAddr = (a) => a ? a.slice(0, 6) + '…' + a.slice(-4) : '—';
 async function bootLockState() {
     const s = await window.labs.lock.status();
     if (!s.hasMaster) {
-        $('lockMode').textContent = 'Welcome — set a master password to encrypt your wallets';
-        $('lockSubmit').textContent = 'Set password';
-        $('lockConfirmField').classList.remove('hidden');
+        // Brand-new install → auto-generate the master password and walk the
+        // user through saving it. We don't ever expose the legacy "type your
+        // own password" form on a fresh install — eliminating weak passwords.
+        await startFirstLaunchFlow();
+        return;
     }
     if (s.locked) {
         $('lockOverlay').classList.add('is-open');
     }
+}
+
+async function startFirstLaunchFlow() {
+    $('lockCardStd').classList.add('hidden');
+    $('lockCardGen').classList.remove('hidden');
+    $('lockOverlay').classList.add('is-open');
+    let r;
+    try { r = await window.labs.lock.firstLaunchSetup(); }
+    catch (e) { $('genPwErr').textContent = String(e?.message || e); return; }
+    if (!r.ok) {
+        // Edge case — master appeared between status() and here. Fall back to standard unlock.
+        $('lockCardGen').classList.add('hidden');
+        $('lockCardStd').classList.remove('hidden');
+        return;
+    }
+    const pw = r.password;
+    $('genPwOut').textContent = pw;
+
+    const updateCta = () => {
+        $('genPwContinue').disabled = !($('genPwAck1').checked && $('genPwAck2').checked);
+    };
+    $('genPwAck1').addEventListener('change', updateCta);
+    $('genPwAck2').addEventListener('change', updateCta);
+
+    $('genPwCopy').addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(pw); $('genPwCopy').textContent = 'COPIED'; setTimeout(() => $('genPwCopy').textContent = 'COPY', 1500); } catch (_) {}
+    });
+
+    $('genPwContinue').addEventListener('click', async () => {
+        if ($('genPwContinue').disabled) return;
+        // Wipe the displayed password from DOM before closing — no need to keep it visible.
+        $('genPwOut').textContent = '••••••••••••••••••••••••';
+        $('lockOverlay').classList.remove('is-open');
+        $('lockCardGen').classList.add('hidden');
+        $('lockCardStd').classList.remove('hidden');
+        await refreshAll();
+    });
 }
 
 $('lockSubmit').addEventListener('click', async () => {
@@ -385,6 +424,167 @@ $('bkImport').addEventListener('click', async () => {
 async function refreshSettings() {
     const status = await window.labs.bridge.status();
     if (status.remote?.url) $('setBridgeUrl').value = status.remote.url;
+    await refreshPasswordRecoverySettings();
+    await refreshSyncSettings();
+}
+
+// Password recovery toggle / reveal block
+let recRevealTimer = null;
+async function refreshPasswordRecoverySettings() {
+    const s = await window.labs.settings.getPasswordRecovery();
+    const t = $('setRecToggle'), reveal = $('setRecReveal'), meta = $('setRecMeta');
+    t.checked = !!s.enabled;
+    reveal.disabled = !s.enabled || !s.stored;
+    if (!s.keytar_available) {
+        t.disabled = true;
+        meta.textContent = 'unavailable on this system';
+        $('setRecStatus').textContent = 'OS keychain not available — install libsecret on Linux, or use macOS Keychain / Windows Credential Manager.';
+        return;
+    }
+    meta.textContent = s.enabled ? (s.stored ? 'enabled' : 'enabled (no password cached yet)') : 'off';
+}
+
+async function setPasswordRecovery(enabled) {
+    const status = $('setRecStatus');
+    status.textContent = '';
+    if (enabled) {
+        const pw = window.prompt('Enter your current master password to enable password recovery:');
+        if (!pw) { $('setRecToggle').checked = false; return; }
+        const r = await window.labs.settings.setPasswordRecovery(true, pw);
+        if (!r.ok) {
+            $('setRecToggle').checked = false;
+            status.innerHTML = '<span class="fg-danger">' + (r.error || 'failed') + '</span>';
+            return;
+        }
+        status.innerHTML = '<span class="fg-profit">enabled — your master password is now stored in this device\'s OS keychain</span>';
+    } else {
+        const r = await window.labs.settings.setPasswordRecovery(false);
+        if (!r.ok) status.innerHTML = '<span class="fg-danger">' + (r.error || 'failed') + '</span>';
+        else status.textContent = 'disabled — removed from keychain';
+    }
+    await refreshPasswordRecoverySettings();
+}
+
+async function revealMasterPassword() {
+    const status = $('setRecStatus');
+    status.textContent = 'authenticating…';
+    let r = await window.labs.settings.revealMasterPassword();
+    if (!r.ok && r.reason === 'prompt_password') {
+        // OS prompt isn't available on this platform — verify by master pw re-entry.
+        const pw = window.prompt('Re-enter your master password to reveal:');
+        if (!pw) { status.textContent = ''; return; }
+        r = await window.labs.settings.revealMasterPassword(pw);
+    }
+    if (!r.ok) {
+        status.innerHTML = '<span class="fg-danger">' + ({
+            recovery_disabled: 'password recovery is off',
+            keytar_unavailable: 'OS keychain not available on this system',
+            no_password_in_keychain: 'no password stored — re-enable recovery to seed it',
+            os_auth_failed: 'OS authentication canceled or failed',
+            wrong_password: 'wrong password',
+        }[r.reason] || r.reason || 'reveal failed') + '</span>';
+        return;
+    }
+    status.textContent = '';
+    $('setRecRevealValue').textContent = r.password;
+    $('setRecRevealOut').classList.remove('hidden');
+    let secs = 30;
+    $('setRecRevealTimer').textContent = secs;
+    if (recRevealTimer) clearInterval(recRevealTimer);
+    recRevealTimer = setInterval(() => {
+        secs--;
+        if (secs <= 0) { hideRevealedPassword(); return; }
+        $('setRecRevealTimer').textContent = secs;
+    }, 1000);
+}
+
+function hideRevealedPassword() {
+    if (recRevealTimer) { clearInterval(recRevealTimer); recRevealTimer = null; }
+    $('setRecRevealValue').textContent = '—';
+    $('setRecRevealOut').classList.add('hidden');
+}
+
+// Cloud sync block
+async function refreshSyncSettings() {
+    const s = await window.labs.sync.status();
+    $('setSyncToggle').checked = !!s.enabled;
+    $('setSyncToggle').disabled = !s.logged_in;
+    $('setSyncUploadNow').disabled = !s.enabled || !s.logged_in;
+    const meta = $('setSyncMeta');
+    if (!s.logged_in) meta.textContent = 'log in to enable';
+    else if (!s.enabled) meta.textContent = 'off';
+    else if (s.has_backup) meta.textContent = 'v' + (s.version || s.last_version || '?') + ' · ' + relTime(s.updated_at || s.last_uploaded_at);
+    else meta.textContent = 'enabled · no backup yet';
+
+    const status = $('setSyncStatus');
+    if (s.error) status.innerHTML = '<span class="fg-danger">' + s.error + '</span>';
+    else if (s.has_backup) status.textContent = 'Cloud backup: v' + s.version + ', uploaded ' + relTime(s.updated_at) + (s.device_label ? ' from ' + s.device_label : '');
+    else if (s.enabled) status.textContent = 'Sync enabled — your next wallet change will upload silently.';
+    else status.textContent = '';
+    updateSyncSidebar(s);
+}
+
+function updateSyncSidebar(s) {
+    const row = $('syncSidebarRow'), label = $('syncSidebarLabel');
+    if (!row || !label) return;
+    if (!s.logged_in) { row.style.display = 'none'; return; }
+    row.style.display = '';
+    if (!s.enabled) { label.innerHTML = '☁ Not synced · <span style="color:var(--term-fg-2)">Enable</span>'; return; }
+    if (s.syncing) { label.textContent = '☁ Syncing…'; return; }
+    if (s.has_backup) label.textContent = '☁ Synced · v' + (s.version || '?') + ' · ' + relTime(s.updated_at || s.last_uploaded_at);
+    else label.textContent = '☁ Enabled · no backup yet';
+}
+
+function relTime(iso) {
+    if (!iso) return '—';
+    const t = new Date(iso).getTime(); if (!t) return '—';
+    const diff = Math.max(0, Date.now() - t);
+    const m = Math.floor(diff / 60_000);
+    if (m < 1) return 'just now';
+    if (m < 60) return m + ' min ago';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + ' h ago';
+    return Math.floor(h / 24) + ' d ago';
+}
+
+async function toggleSync(enabled) {
+    const status = $('setSyncStatus');
+    if (enabled) {
+        status.textContent = 'enabling sync — uploading first backup…';
+        const r = await window.labs.sync.enable();
+        if (!r.ok) {
+            $('setSyncToggle').checked = false;
+            status.innerHTML = '<span class="fg-danger">' + (r.error || 'enable failed') + '</span>';
+            return;
+        }
+        status.innerHTML = '<span class="fg-profit">cloud sync enabled — backup uploaded</span>';
+    } else {
+        const deleteRemote = window.confirm('Disable cloud sync.\n\nAlso DELETE the existing backup from the server?\n(If you click Cancel, the server copy stays — useful if you\'re reinstalling.)');
+        const r = await window.labs.sync.disable(deleteRemote);
+        if (!r.ok) status.innerHTML = '<span class="fg-danger">' + (r.error || 'disable failed') + '</span>';
+        else status.textContent = 'cloud sync disabled' + (deleteRemote ? ' · server copy deleted' : ' · server copy retained');
+    }
+    await refreshSyncSettings();
+}
+
+async function syncUploadNow() {
+    const status = $('setSyncStatus');
+    status.textContent = 'uploading…';
+    const r = await window.labs.sync.uploadNow();
+    if (!r.ok) status.innerHTML = '<span class="fg-danger">' + (r.error || 'upload failed') + '</span>';
+    else status.innerHTML = '<span class="fg-profit">uploaded · v' + r.version + '</span>';
+    await refreshSyncSettings();
+}
+
+async function syncRestoreFromCloud(password) {
+    const status = $('setSyncRestoreStatus');
+    status.textContent = 'downloading & decrypting…';
+    const r = await window.labs.sync.restoreFromCloud(password);
+    if (!r.ok) { status.innerHTML = '<span class="fg-danger">' + (r.error || 'restore failed') + '</span>'; return false; }
+    status.innerHTML = '<span class="fg-profit">restored ' + r.imported + ' wallet' + (r.imported === 1 ? '' : 's') + ' from cloud backup</span>';
+    await refreshWallets();
+    await refreshSyncSettings();
+    return true;
 }
 
 $('setSave').addEventListener('click', async () => {
@@ -396,6 +596,44 @@ $('setSave').addEventListener('click', async () => {
     $('setLock').blur();
     document.body.classList.add('flash-up');
     setTimeout(() => document.body.classList.remove('flash-up'), 320);
+});
+
+// Password recovery handlers
+$('setRecToggle')?.addEventListener('change', (e) => setPasswordRecovery(e.target.checked));
+$('setRecReveal')?.addEventListener('click', () => revealMasterPassword());
+$('setRecRevealCopy')?.addEventListener('click', async () => {
+    const v = $('setRecRevealValue').textContent;
+    if (!v || v === '—') return;
+    try { await navigator.clipboard.writeText(v); $('setRecRevealCopy').textContent = 'COPIED'; setTimeout(() => $('setRecRevealCopy').textContent = 'COPY', 1500); } catch (_) {}
+});
+$('setRecRevealHide')?.addEventListener('click', (e) => { e.preventDefault(); hideRevealedPassword(); });
+
+// Cloud sync handlers
+$('setSyncToggle')?.addEventListener('change', (e) => toggleSync(e.target.checked));
+$('setSyncUploadNow')?.addEventListener('click', () => syncUploadNow());
+$('setSyncRestore')?.addEventListener('click', () => {
+    $('setSyncRestoreBlock').classList.remove('hidden');
+    $('setSyncRestorePw').value = '';
+    $('setSyncRestoreStatus').textContent = '';
+    $('setSyncRestorePw').focus();
+});
+$('setSyncRestoreCancel')?.addEventListener('click', () => $('setSyncRestoreBlock').classList.add('hidden'));
+$('setSyncRestoreGo')?.addEventListener('click', async () => {
+    const pw = $('setSyncRestorePw').value;
+    if (!pw) { $('setSyncRestoreStatus').innerHTML = '<span class="fg-danger">master password required</span>'; return; }
+    const ok = await syncRestoreFromCloud(pw);
+    if (ok) setTimeout(() => $('setSyncRestoreBlock').classList.add('hidden'), 1500);
+});
+$('setSyncRestorePw')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('setSyncRestoreGo').click(); });
+
+// Live sync indicator from main
+window.labs.on.syncUpdated(async (payload) => {
+    if (payload?.syncing) {
+        updateSyncSidebar({ logged_in: true, enabled: true, syncing: true });
+        return;
+    }
+    // Always re-fetch to keep the meta fresh (size, version, etc.)
+    await refreshSyncSettings();
 });
 
 // ── Status bar ──────────────────────────────────────────────────────────────
@@ -480,6 +718,11 @@ const account = {
         $('acctPassword').value = '';
         $('acctLoginStatus').innerHTML = '<span class="fg-profit">welcome, ' + (r.user.name || r.user.email) + '</span>';
         this.renderSidebar();
+        // New-device prompt: if there's a server-side backup and local has no
+        // wallets yet, offer to restore. Non-blocking — settles into the manage
+        // pane regardless of choice.
+        await maybeOfferCloudRestore();
+        await refreshSyncSettings();
         setTimeout(() => showPane('account-manage'), 600);
     },
 
@@ -641,6 +884,20 @@ async function refreshAccountManage() {
     await account.openManage();
 }
 
+async function maybeOfferCloudRestore() {
+    let s;
+    try { s = await window.labs.sync.status(); }
+    catch (_) { return; }
+    if (!s.has_backup) return;
+    const localCount = (await window.labs.wallet.list()).length;
+    if (localCount > 0) return;
+    const pw = window.prompt('A wallet backup was found on your Labs account.\n\nEnter the master password used when it was created to restore your wallets:');
+    if (!pw) return;
+    const r = await window.labs.sync.restoreFromCloud(pw);
+    if (r.ok) window.alert('Restored ' + r.imported + ' wallet' + (r.imported === 1 ? '' : 's') + ' from cloud backup.');
+    else window.alert('Restore failed: ' + (r.error || 'unknown'));
+}
+
 $('acctLoginBtn')?.addEventListener('click', () => account.login());
 $('acctPassword')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') account.login(); });
 $('acctEmail')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('acctPassword').focus(); });
@@ -659,7 +916,7 @@ async function refreshAll() {
         await openWallet(state.activeAddress);
     }
     refreshStatus();
-    account.boot();
+    account.boot().then(() => refreshSyncSettings().catch(() => {}));
 }
 
 bootLockState();

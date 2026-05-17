@@ -15,11 +15,28 @@ window.addEventListener('keydown',  () => ipcRenderer.send('activity'), { passiv
 contextBridge.exposeInMainWorld('labs', {
     // ── Lock / unlock ──
     lock: {
-        status:       ()         => invoke('lock:status'),
-        setMaster:    (password) => invoke('lock:set-master', password),
-        unlock:       (password) => invoke('lock:unlock', password),
-        lockNow:      ()         => invoke('lock:lock'),
-        setTimeout:   (ms)       => invoke('lock:set-timeout', ms),
+        status:             ()         => invoke('lock:status'),
+        firstLaunchSetup:   ()         => invoke('lock:first-launch-setup'),
+        setMaster:          (password) => invoke('lock:set-master', password),
+        unlock:             (password) => invoke('lock:unlock', password),
+        lockNow:            ()         => invoke('lock:lock'),
+        setTimeout:         (ms)       => invoke('lock:set-timeout', ms),
+    },
+
+    // ── Settings: password recovery (OS keychain) ──
+    settings: {
+        getPasswordRecovery: ()                                 => invoke('settings:get-password-recovery'),
+        setPasswordRecovery: (enabled, password)                => invoke('settings:set-password-recovery', { enabled, password }),
+        revealMasterPassword: (reentered)                       => invoke('settings:reveal-master-password', { reentered }),
+    },
+
+    // ── Cloud sync ──
+    sync: {
+        status:           ()                       => invoke('sync:status'),
+        enable:           (password)               => invoke('sync:enable', { password }),
+        disable:          (deleteRemote)           => invoke('sync:disable', { deleteRemote: !!deleteRemote }),
+        uploadNow:        (password)               => invoke('sync:upload-now', { password }),
+        restoreFromCloud: (password)               => invoke('sync:restore-from-cloud', { password }),
     },
 
     // ── Wallet management ──
@@ -95,5 +112,6 @@ contextBridge.exposeInMainWorld('labs', {
         locked:      (handler) => ipcRenderer.on('ui:locked', handler),
         autoSigned:  (handler) => ipcRenderer.on('ui:auto-signed', (_e, payload) => handler(payload)),
         nav:         (handler) => ipcRenderer.on('ui:nav', (_e, target) => handler(target)),
+        syncUpdated: (handler) => ipcRenderer.on('ui:sync-updated', (_e, payload) => handler(payload)),
     },
 });

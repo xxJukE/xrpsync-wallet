@@ -5,14 +5,25 @@
 
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Menu, dialog, shell, Tray, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, shell, Tray, nativeImage, systemPreferences } = require('electron');
 const path = require('path');
 
 // Defer requires that touch electron-store / xrpl until after app.whenReady to keep startup snappy.
 let WalletStore, WalletGenerate, WalletImport, WalletSign, WalletBackup, AutoSign;
+let WalletSync;
 let XrplConnection, XrplBalances, XrplHistory, XrplTrustlines, XrplSubmit;
 let BridgeServer, BridgeRemote, BridgeProtocol;
 let AccountApi, AccountSession, AccountPayment;
+
+// keytar is a native module; load lazily and degrade gracefully if libsecret
+// (Linux) or the system keychain isn't available — the password-recovery
+// feature is opt-in so its absence is non-fatal.
+let keytar = null;
+const KEYTAR_SERVICE = 'labs-wallet';
+const KEYTAR_ACCOUNT = 'master-password';
+
+const LABS_API_BASE = process.env.LABS_API_BASE || 'https://lab.kyopsec.com';
+let pendingSyncTimer = null;
 
 let mainWindow = null;
 let approvalWindow = null;
@@ -111,7 +122,10 @@ app.whenReady().then(() => {
     WalletImport    = require('./src/wallet/import');
     WalletSign      = require('./src/wallet/sign');
     WalletBackup    = require('./src/wallet/backup');
+    WalletSync      = require('./src/wallet/sync');
     AutoSign        = require('./src/wallet/auto-sign');
+    try { keytar = require('keytar'); }
+    catch (e) { console.warn('[main] keytar unavailable, password recovery disabled:', e?.message || e); }
     XrplConnection  = require('./src/xrpl/connection');
     XrplBalances    = require('./src/xrpl/balances');
     XrplHistory     = require('./src/xrpl/history');
@@ -142,7 +156,32 @@ app.on('before-quit', () => { try { BridgeServer?.stop(); BridgeRemote?.disconne
 // ── IPC handlers ────────────────────────────────────────────────────────────
 function registerIpc() {
     // Lock state
-    ipcMain.handle('lock:status', () => ({ locked: isLocked, hasMaster: WalletStore.hasMasterPassword() }));
+    ipcMain.handle('lock:status', () => ({
+        locked:    isLocked,
+        hasMaster: WalletStore.hasMasterPassword(),
+        kdf:       WalletStore.masterKdf(),
+    }));
+
+    // First-launch setup. Generates a strong random master password, sets it as
+    // the wallet's master, and returns the plaintext exactly once for the UI to
+    // display + the user to write down. Never stored to disk on the server, and
+    // not pushed to OS keychain unless the user opts into password recovery
+    // (see settings IPC below).
+    ipcMain.handle('lock:first-launch-setup', async () => {
+        if (WalletStore.hasMasterPassword()) {
+            return { ok: false, error: 'master_already_set' };
+        }
+        const password = WalletStore.generateMasterPassword(24);
+        await WalletStore.setMasterPassword(password);
+        isLocked = false;
+        resetLockTimer();
+        BridgeServer?.broadcastWalletInfo();
+        return { ok: true, password };
+    });
+
+    // Legacy "user-chosen password" flow. Still callable for existing installs
+    // that hit "Set password" before the auto-generation flow shipped; new UI
+    // routes through lock:first-launch-setup instead.
     ipcMain.handle('lock:set-master', async (_e, password) => {
         await WalletStore.setMasterPassword(password);
         isLocked = false;
@@ -159,21 +198,178 @@ function registerIpc() {
     ipcMain.handle('lock:set-timeout', (_e, ms) => { lockMs = Math.max(30_000, Number(ms) || 300_000); WalletStore.setPref('lock_ms', lockMs); resetLockTimer(); return { ok: true, ms: lockMs }; });
     ipcMain.on('activity', noteActivity);
 
+    // ── Settings: password recovery (OS keychain copy of master pw) ──
+    // Off by default. When enabled the user can reveal the master password
+    // after passing OS authentication. Anyone with access to your unlocked
+    // OS session can also extract it, so this is a convenience knob the
+    // user must consciously turn on.
+    ipcMain.handle('settings:get-password-recovery', async () => {
+        const enabled = !!WalletStore.getPref('password_recovery_enabled');
+        let stored = false;
+        if (enabled && keytar) {
+            try { stored = !!(await keytar.getPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT)); } catch (_) {}
+        }
+        return { enabled, keytar_available: !!keytar, stored };
+    });
+
+    ipcMain.handle('settings:set-password-recovery', async (_e, { enabled, password }) => {
+        if (!keytar) return { ok: false, error: 'keytar_unavailable_on_this_system' };
+        if (enabled) {
+            ensureUnlocked();
+            // Prefer the password the user just typed (we may not have it cached
+            // if they unlocked the app from a previous session without retyping).
+            const live = password || WalletStore.getUnlockedPassword();
+            if (!live) return { ok: false, error: 'password_required_to_enable' };
+            // Re-verify by attempting an unlock with the supplied password — this
+            // catches typos so we don't stash a wrong password in the keychain.
+            const ok = await WalletStore.unlock(live);
+            if (!ok) return { ok: false, error: 'wrong_password' };
+            try { await keytar.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT, live); }
+            catch (e) { return { ok: false, error: 'keychain_write_failed: ' + (e.message || e) }; }
+            WalletStore.setPref('password_recovery_enabled', true);
+            isLocked = false; resetLockTimer();
+            return { ok: true };
+        } else {
+            try { await keytar.deletePassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT); } catch (_) {}
+            WalletStore.setPref('password_recovery_enabled', false);
+            return { ok: true };
+        }
+    });
+
+    // Reveal the master password. Requires OS authentication when available;
+    // on platforms without a native prompt (most Linux, older Windows) the
+    // renderer is told to prompt for master-password re-entry and we verify
+    // it before returning the stored copy.
+    ipcMain.handle('settings:reveal-master-password', async (_e, { reentered } = {}) => {
+        if (!WalletStore.getPref('password_recovery_enabled')) {
+            return { ok: false, reason: 'recovery_disabled' };
+        }
+        if (!keytar) return { ok: false, reason: 'keytar_unavailable' };
+        const stored = await keytar.getPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT).catch(() => null);
+        if (!stored) return { ok: false, reason: 'no_password_in_keychain' };
+
+        if (process.platform === 'darwin' && systemPreferences?.canPromptTouchID?.()) {
+            try { await systemPreferences.promptTouchID('reveal Labs Wallet master password'); }
+            catch (_) { return { ok: false, reason: 'os_auth_failed' }; }
+            return { ok: true, password: stored };
+        }
+        // Windows / Linux fallback — renderer must collect the master password.
+        if (!reentered) {
+            return { ok: false, reason: 'prompt_password' };
+        }
+        const verified = await WalletStore.unlock(reentered);
+        if (!verified) return { ok: false, reason: 'wrong_password' };
+        return { ok: true, password: stored };
+    });
+
+    // ── Cloud sync ──
+    ipcMain.handle('sync:status', async () => syncStatusForRenderer());
+
+    ipcMain.handle('sync:enable', async (_e, { password } = {}) => {
+        ensureUnlocked();
+        const token = AccountSession?.getToken();
+        if (!token) return { ok: false, error: 'not_logged_in_to_labs_account' };
+        const pw = password || WalletStore.getUnlockedPassword();
+        if (!pw) return { ok: false, error: 'master_password_required_to_seed_sync' };
+        WalletStore.setPref('sync_enabled', true);
+        const res = await uploadCurrentBlob(pw).catch(e => ({ ok: false, error: e.message || String(e) }));
+        if (!res.ok) WalletStore.setPref('sync_enabled', false);
+        return res;
+    });
+
+    ipcMain.handle('sync:disable', async (_e, { deleteRemote } = {}) => {
+        WalletStore.setPref('sync_enabled', false);
+        if (deleteRemote) {
+            const token = AccountSession?.getToken();
+            if (token) {
+                try { await WalletSync.deleteBackup({ baseUrl: LABS_API_BASE, token }); } catch (_) {}
+            }
+        }
+        return { ok: true };
+    });
+
+    ipcMain.handle('sync:upload-now', async (_e, { password } = {}) => {
+        ensureUnlocked();
+        const token = AccountSession?.getToken();
+        if (!token) return { ok: false, error: 'not_logged_in_to_labs_account' };
+        const pw = password || WalletStore.getUnlockedPassword();
+        if (!pw) return { ok: false, error: 'master_password_required' };
+        return uploadCurrentBlob(pw);
+    });
+
+    // Restore wallets from the server-side blob. Requires the master password
+    // that was used when the blob was originally produced. If the local store
+    // already has wallets, they're left in place and any non-overlapping
+    // addresses from the cloud are added.
+    ipcMain.handle('sync:restore-from-cloud', async (_e, { password }) => {
+        if (!password) return { ok: false, error: 'master_password_required' };
+        const token = AccountSession?.getToken();
+        if (!token) return { ok: false, error: 'not_logged_in_to_labs_account' };
+        const r = await WalletSync.downloadBlob({ baseUrl: LABS_API_BASE, token });
+        if (!r.ok) return { ok: false, error: 'download_failed: HTTP ' + r.status };
+        if (!r.body?.has_backup) return { ok: false, error: 'no_backup_on_server' };
+
+        const blob = Buffer.from(r.body.encrypted_blob, 'base64');
+        let inner;
+        try { inner = await WalletSync.decodeBlob(blob, password); }
+        catch (e) { return { ok: false, error: e.message || String(e) }; }
+
+        // If the local store has no master yet, set the one we just verified.
+        if (!WalletStore.hasMasterPassword()) {
+            await WalletStore.setMasterPassword(password);
+            isLocked = false; resetLockTimer();
+        } else if (isLocked) {
+            // Unlock with the supplied password — this is also our verification.
+            const ok = await WalletStore.unlock(password);
+            if (!ok) return { ok: false, error: 'master_password_does_not_match_local_store' };
+            isLocked = false; resetLockTimer();
+        }
+
+        const xrpl = require('xrpl');
+        const existing = new Set(WalletStore.listWallets().map(w => w.address));
+        let imported = 0;
+        for (const w of (inner.wallets || [])) {
+            try {
+                if (existing.has(w.address)) continue;
+                const xw = xrpl.Wallet.fromSeed(w.seed);
+                await WalletStore.saveWallet({
+                    address: xw.classicAddress,
+                    classicAddress: xw.classicAddress,
+                    publicKey: xw.publicKey,
+                    seed: w.seed,
+                }, w.label || null);
+                imported++;
+            } catch (_) { /* skip malformed entry */ }
+        }
+        if (inner.rules && typeof inner.rules === 'object') WalletStore.setAutoSignRules(inner.rules);
+
+        WalletStore.setPref('sync_enabled', true);
+        BridgeServer?.broadcastWalletInfo();
+        return { ok: true, imported, version: r.body.version, updated_at: r.body.updated_at };
+    });
+
     // Wallet management
     ipcMain.handle('wallet:list', () => WalletStore.listWallets());
     ipcMain.handle('wallet:generate', async (_e, opts) => {
         ensureUnlocked();
         const w = WalletGenerate.create();
         await WalletStore.saveWallet(w, (opts && opts.label) || null);
+        scheduleAutoSync();
         return { address: w.address, classicAddress: w.classicAddress };
     });
     ipcMain.handle('wallet:import', async (_e, { kind, value, label }) => {
         ensureUnlocked();
         const w = WalletImport.fromInput(kind, value);
         await WalletStore.saveWallet(w, label || null);
+        scheduleAutoSync();
         return { address: w.address };
     });
-    ipcMain.handle('wallet:rename', async (_e, { address, label }) => { ensureUnlocked(); WalletStore.renameWallet(address, label); return { ok: true }; });
+    ipcMain.handle('wallet:rename', async (_e, { address, label }) => {
+        ensureUnlocked();
+        WalletStore.renameWallet(address, label);
+        scheduleAutoSync();
+        return { ok: true };
+    });
     ipcMain.handle('wallet:reveal-secret', async (_e, { address, password }) => {
         ensureUnlocked();
         return WalletStore.revealSecret(address, password);
@@ -182,6 +378,7 @@ function registerIpc() {
         ensureUnlocked();
         if (confirm !== 'DELETE') throw new Error('confirmation_required');
         WalletStore.deleteWallet(address);
+        scheduleAutoSync();
         return { ok: true };
     });
 
@@ -355,6 +552,65 @@ function ensureUnlocked() {
         const e = new Error('app_locked'); e.code = 'LOCKED'; throw e;
     }
     noteActivity();
+}
+
+// ── Cloud sync helpers ──────────────────────────────────────────────────────
+async function syncStatusForRenderer() {
+    const enabled = !!WalletStore.getPref('sync_enabled');
+    const lastUploaded = WalletStore.getPref('sync_last_uploaded_at') || null;
+    const lastVersion  = WalletStore.getPref('sync_last_version') || null;
+    const token = AccountSession?.getToken();
+    if (!token) return { enabled, logged_in: false, has_backup: false, last_uploaded_at: lastUploaded, last_version: lastVersion };
+    try {
+        const r = await WalletSync.statusRequest({ baseUrl: LABS_API_BASE, token });
+        if (!r.ok) return { enabled, logged_in: true, error: 'status_http_' + r.status, last_uploaded_at: lastUploaded };
+        return {
+            enabled,
+            logged_in:  true,
+            has_backup: !!r.body.has_backup,
+            version:    r.body.version || null,
+            updated_at: r.body.updated_at || null,
+            size_bytes: r.body.size_bytes || 0,
+            device_label: r.body.device_label || null,
+            last_uploaded_at: lastUploaded,
+            last_version: lastVersion,
+        };
+    } catch (e) {
+        return { enabled, logged_in: true, error: e.message || String(e), last_uploaded_at: lastUploaded };
+    }
+}
+
+async function uploadCurrentBlob(masterPassword) {
+    const token = AccountSession?.getToken();
+    if (!token) return { ok: false, error: 'not_logged_in' };
+    const { blob, checksum, version } = await WalletSync.buildBlob(WalletStore, masterPassword);
+    const r = await WalletSync.uploadBlob({ baseUrl: LABS_API_BASE, token, blob, checksum, version });
+    if (!r.ok) return { ok: false, error: 'upload_http_' + r.status, body: r.body };
+    WalletStore.setPref('sync_last_uploaded_at', new Date().toISOString());
+    WalletStore.setPref('sync_last_version', version);
+    if (mainWindow) mainWindow.webContents.send('ui:sync-updated', { ok: true, version, uploaded_at: r.body?.uploaded_at });
+    return { ok: true, version, uploaded_at: r.body?.uploaded_at };
+}
+
+// Debounced background upload triggered by wallet:* mutations. Silent — the
+// only UI is the small "syncing…" indicator the renderer drives off
+// 'ui:sync-updated'. If the user hasn't enabled sync or isn't logged in, no-op.
+function scheduleAutoSync() {
+    if (!WalletStore.getPref('sync_enabled')) return;
+    if (!AccountSession?.getToken()) return;
+    if (pendingSyncTimer) clearTimeout(pendingSyncTimer);
+    pendingSyncTimer = setTimeout(async () => {
+        pendingSyncTimer = null;
+        try {
+            const pw = WalletStore.getUnlockedPassword();
+            if (!pw) return; // can't auto-sync without the password — skipped silently
+            if (mainWindow) mainWindow.webContents.send('ui:sync-updated', { syncing: true });
+            await uploadCurrentBlob(pw);
+        } catch (e) {
+            console.warn('[main] auto-sync failed', e?.message || e);
+            if (mainWindow) mainWindow.webContents.send('ui:sync-updated', { ok: false, error: e?.message });
+        }
+    }, 1500);
 }
 
 // ── Bridges ─────────────────────────────────────────────────────────────────

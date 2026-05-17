@@ -10,7 +10,8 @@
 
 <!-- Lock overlay -->
 <div id="lockOverlay" class="lock-overlay">
-    <div class="lock-card">
+    <!-- (A) Standard lock / set-password card -->
+    <div class="lock-card" id="lockCardStd">
         <div class="ttl">LABS WALLET</div>
         <div id="lockMode" class="field" style="text-align:center;color:var(--term-muted);font-size:10px;letter-spacing:0.10em;margin-bottom:18px">Enter master password to unlock</div>
         <div class="field">
@@ -23,6 +24,28 @@
         </div>
         <button id="lockSubmit" class="btn" style="width:100%">Unlock</button>
         <div id="lockErr" class="err"></div>
+    </div>
+
+    <!-- (B) First-launch generated-password card -->
+    <div class="lock-card hidden" id="lockCardGen" style="max-width:520px">
+        <div class="ttl">🔒 YOUR MASTER PASSWORD</div>
+        <p class="mut" style="text-align:center;font-size:10px;line-height:1.6;margin:0 0 14px">
+            This password protects your wallet keys.<br>
+            It was generated for maximum security.<br>
+            <b style="color:var(--term-warn,#f7c948)">WRITE IT DOWN. We cannot recover it.</b>
+        </p>
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--term-line,#1f2731);border-radius:4px;background:#0a0e14;margin-bottom:14px">
+            <code id="genPwOut" class="tabular" style="flex:1;font-size:13px;letter-spacing:0.04em;color:var(--term-fg);word-break:break-all">—</code>
+            <button class="btn ghost" id="genPwCopy" type="button" style="white-space:nowrap">COPY</button>
+        </div>
+        <label class="row" style="gap:8px;align-items:center;font-size:11px;margin-bottom:6px;cursor:pointer">
+            <input type="checkbox" id="genPwAck1" /> I have saved my master password
+        </label>
+        <label class="row" style="gap:8px;align-items:center;font-size:11px;margin-bottom:14px;cursor:pointer">
+            <input type="checkbox" id="genPwAck2" /> I understand this <b>CANNOT</b> be recovered
+        </label>
+        <button id="genPwContinue" class="btn" style="width:100%" disabled>CONTINUE</button>
+        <div id="genPwErr" class="err"></div>
     </div>
 </div>
 
@@ -58,6 +81,9 @@
                 <div class="item" data-pane="account-manage" id="acctSidebarRow">
                     <div><span class="acct-dot"></span><span id="acctSidebarName">—</span> <span id="acctSidebarTier" class="acct-pill">FREE</span></div>
                     <small class="mut" id="acctSidebarMeta">—</small>
+                </div>
+                <div id="syncSidebarRow" class="item" data-pane="settings" style="cursor:pointer">
+                    <small id="syncSidebarLabel" class="mut">☁ Not synced</small>
                 </div>
             </div>
         </div>
@@ -189,6 +215,80 @@
                         <input id="setBridgeToken" type="password" placeholder="paste token from website" />
                     </div>
                     <button class="btn" id="setSave">Save</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-h"><span class="t">PASSWORD RECOVERY</span><span class="m" id="setRecMeta">off</span></div>
+                <div class="card-b">
+                    <p class="mut" style="font-size:10px;line-height:1.6">
+                        When enabled, your master password is stored in this device's OS keychain
+                        (Keychain on macOS, Credential Manager on Windows, libsecret on Linux).
+                        You can then <b>reveal</b> it after passing OS authentication — useful when
+                        you've forgotten the copy you wrote down, or when setting up a new device.
+                        <br><br>
+                        <b style="color:var(--term-warn,#f7c948)">Tradeoff:</b> anyone with access to your unlocked OS session can
+                        also extract the password from the keychain. Leave this off unless you
+                        need it.
+                    </p>
+                    <div class="hr"></div>
+                    <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
+                        <label class="row" style="gap:8px;align-items:center;cursor:pointer;font-size:11px">
+                            <input type="checkbox" id="setRecToggle" />
+                            Enable password recovery
+                        </label>
+                        <div class="spacer"></div>
+                        <button class="btn ghost" id="setRecReveal" disabled>Show master password</button>
+                    </div>
+                    <div id="setRecRevealOut" class="hidden" style="margin-top:14px;border:1px solid var(--term-line,#1f2731);border-radius:4px;padding:10px 12px;background:#0a0e14">
+                        <div class="mut" style="font-size:9px;letter-spacing:0.10em;margin-bottom:4px">YOUR MASTER PASSWORD</div>
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <code id="setRecRevealValue" class="tabular" style="flex:1;font-size:13px;letter-spacing:0.04em;color:var(--term-fg);word-break:break-all">—</code>
+                            <button class="btn ghost" id="setRecRevealCopy" type="button" style="white-space:nowrap">COPY</button>
+                        </div>
+                        <div class="mut" style="font-size:10px;margin-top:8px">Auto-hides in <span id="setRecRevealTimer">30</span> seconds. <a href="#" id="setRecRevealHide">Hide now</a></div>
+                    </div>
+                    <div id="setRecStatus" class="mut" style="margin-top:10px;font-size:10px;min-height:14px"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-h"><span class="t">CLOUD SYNC</span><span class="m" id="setSyncMeta">off</span></div>
+                <div class="card-b">
+                    <p class="mut" style="font-size:10px;line-height:1.6">
+                        Optional. Encrypts your wallet store with your master password and uploads
+                        the ciphertext to the Labs server. Lets you restore your wallets on a new
+                        device after logging in. <b>The server never sees your master password</b>
+                        and cannot read the blob.
+                    </p>
+                    <div class="hr"></div>
+                    <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
+                        <label class="row" style="gap:8px;align-items:center;cursor:pointer;font-size:11px">
+                            <input type="checkbox" id="setSyncToggle" />
+                            Enable cloud sync
+                        </label>
+                        <div class="spacer"></div>
+                        <button class="btn ghost" id="setSyncUploadNow" disabled>Sync now</button>
+                        <button class="btn ghost" id="setSyncRestore">Restore from cloud…</button>
+                    </div>
+                    <div id="setSyncStatus" class="mut" style="margin-top:10px;font-size:10px;min-height:14px"></div>
+                </div>
+            </div>
+
+            <!-- Hidden inline prompt for sync restore -->
+            <div id="setSyncRestoreBlock" class="card hidden">
+                <div class="card-h"><span class="t">RESTORE FROM CLOUD</span></div>
+                <div class="card-b">
+                    <p class="mut" style="font-size:10px">Enter the master password that was used when the backup was created.</p>
+                    <div class="field">
+                        <label for="setSyncRestorePw">Master password</label>
+                        <input id="setSyncRestorePw" type="password" />
+                    </div>
+                    <div class="row" style="gap:8px">
+                        <button class="btn" id="setSyncRestoreGo">Restore</button>
+                        <button class="btn ghost" id="setSyncRestoreCancel" type="button">Cancel</button>
+                    </div>
+                    <div id="setSyncRestoreStatus" class="mut" style="margin-top:10px;font-size:10px;min-height:14px"></div>
                 </div>
             </div>
         </div>
