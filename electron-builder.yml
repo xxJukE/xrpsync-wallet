@@ -1,7 +1,8 @@
 # electron-builder config — also embedded in package.json for convenience.
 # Build: `npm run build:win` / `:mac` / `:linux`. Output lands in dist/.
-appId: com.labs.wallet
-productName: Labs Wallet
+appId: com.xrpsync.wallet
+productName: XRPSync Wallet
+artifactName: XRPSync-Wallet-Setup-${version}.${ext}
 directories:
   output: dist
 files:

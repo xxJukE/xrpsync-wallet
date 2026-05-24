@@ -1,4 +1,4 @@
-// account/session.js — persistent Labs account session for the desktop wallet.
+// account/session.js — persistent XRPSync account session for the desktop wallet.
 //
 // Stores the bearer token (encrypted by Electron safeStorage when available,
 // fallback to plain electron-store with a clear marker) plus the last-known

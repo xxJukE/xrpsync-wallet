@@ -1,4 +1,4 @@
-# Labs Wallet — assets
+# XRPSync Wallet — assets
 
 Drop these files in before running `npm run build`. The packager will fail without them.
 
@@ -10,7 +10,7 @@ Drop these files in before running `npm run build`. The packager will fail witho
 | `logo.svg`    | About dialog / website download page | scalable mark |
 
 Suggested workflow:
-1. Design a 1024×1024 PNG of the Labs mark.
+1. Design a 1024×1024 PNG of the XRPSync mark.
 2. Convert with `electron-icon-builder` or `png2icons` to produce `.ico` and `.icns`.
 3. Drop all four files in this folder.
 

@@ -1,4 +1,4 @@
-// remote.js — optional outbound WebSocket client to the Labs Platform server.
+// remote.js — optional outbound WebSocket client to the XRPSync server.
 // When configured (URL + token), the wallet maintains a long-lived connection so trades
 // initiated from the user's mobile/web session land here even when the desktop browser
 // isn't open. Disabled by default.

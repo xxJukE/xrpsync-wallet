@@ -1,4 +1,4 @@
-// account/api.js — thin HTTP client for the Labs Platform wallet endpoints.
+// account/api.js — thin HTTP client for the XRPSync wallet endpoints.
 // All HTTP happens in the Electron main process. The renderer only goes through IPC.
 //
 // Token lifecycle is owned by ./session.js. This file just makes the calls.
@@ -9,7 +9,7 @@ const https = require('https');
 const http  = require('http');
 const { URL } = require('url');
 
-const DEFAULT_BASE = process.env.LABS_API_BASE || 'https://lab.kyopsec.com';
+const DEFAULT_BASE = process.env.LABS_API_BASE || 'https://xrpsync.com';
 
 function request(method, path, { token = null, body = null, base = DEFAULT_BASE, timeoutMs = 20000 } = {}) {
     return new Promise((resolve, reject) => {

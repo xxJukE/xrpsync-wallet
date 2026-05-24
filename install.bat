@@ -1,5 +1,5 @@
 @echo off
-REM Labs Wallet — install + launch script for Windows.
+REM XRPSync Wallet — install + launch script for Windows.
 REM Use this until the GitHub Actions build is producing signed installers.
 REM
 REM Requirements:
@@ -15,7 +15,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 echo.
-echo === Labs Wallet : install helper ===
+echo === XRPSync Wallet : install helper ===
 echo.
 
 where node >nul 2>nul
@@ -66,6 +66,6 @@ if /I "%MODE%"=="--build" (
     exit /b 0
 )
 
-echo Launching Labs Wallet (dev mode)...
+echo Launching XRPSync Wallet (dev mode)...
 call npm start
 exit /b %errorlevel%

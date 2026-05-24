@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self' http://192.168.1.181:11434">
-<title>Labs Wallet</title>
+<title>XRPSync Wallet</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
 <div id="lockOverlay" class="lock-overlay">
     <!-- (A) Standard lock / set-password card -->
     <div class="lock-card" id="lockCardStd">
-        <div class="ttl">LABS WALLET</div>
+        <div class="ttl">XRPSYNC WALLET</div>
         <div id="lockMode" class="field" style="text-align:center;color:var(--term-muted);font-size:10px;letter-spacing:0.10em;margin-bottom:18px">Enter master password to unlock</div>
         <div class="field">
             <label for="lockPw">Master password</label>
@@ -52,7 +52,7 @@
 <!-- App shell -->
 <div class="lw-app">
     <div class="lw-top">
-        <span class="brand">⚡ LABS WALLET</span>
+        <span class="brand">⚡ XRPSYNC WALLET</span>
         <span class="status">
             <span><span id="netDot" class="dot"></span><span id="netLabel">connecting…</span></span>
             <span><span id="bridgeDot" class="dot"></span><span id="bridgeLabel">bridge: idle</span></span>
@@ -75,7 +75,7 @@
         <div id="acctSidebar">
             <div id="acctSidebarOut">
                 <div class="mut" style="padding:4px 14px;font-size:10px">Not logged in</div>
-                <div class="add-btn" data-pane="account-login" style="margin-top:6px">→ Log in to Labs</div>
+                <div class="add-btn" data-pane="account-login" style="margin-top:6px">→ Log in to XRPSync</div>
             </div>
             <div id="acctSidebarIn" class="hidden">
                 <div class="item" data-pane="account-manage" id="acctSidebarRow">
@@ -94,13 +94,13 @@
             <div class="card">
                 <div class="card-h"><span class="t">WELCOME</span><span class="m">v1.0.0</span></div>
                 <div class="card-b">
-                    <p class="mut" style="font-size:11px">Labs Wallet keeps your XRPL keys on this device. The Labs Platform never sees them.</p>
+                    <p class="mut" style="font-size:11px">XRPSync Wallet keeps your XRPL keys on this device. The XRPSync never sees them.</p>
                     <div class="hr"></div>
                     <p>Get started:</p>
                     <ul style="margin:8px 0 0 18px;color:var(--term-fg-2);font-size:11px;line-height:1.8">
                         <li>Click <b>+ New wallet</b> to generate one, or <b>Import wallet</b> if you have an existing seed.</li>
-                        <li>Open the Labs Platform website and click <b>Connect Wallet</b>. The site will pair with this app.</li>
-                        <li>Optionally enable <b>auto-sign</b> with rules so the Growth Engine can run without prompting.</li>
+                        <li>Open the XRPSync website and click <b>Connect Wallet</b>. The site will pair with this app.</li>
+                        <li>Optionally enable <b>auto-sign</b> rules so the xrpsync.com terminal can execute approved trade types without prompting for every signature.</li>
                     </ul>
                 </div>
             </div>
@@ -119,7 +119,7 @@
                         <div class="spacer"></div>
                         <button class="btn ghost" id="wRefresh">↻ Refresh</button>
                         <button class="btn" id="wSendBtn">Send</button>
-                        <button class="btn buy-xrp" id="wFundBtn" title="Buy XRP with credit card on Labs Platform">💳 Fund Wallet</button>
+                        <button class="btn buy-xrp" id="wFundBtn" title="Buy XRP with credit card on XRPSync">💳 Fund Wallet</button>
                         <button class="btn warn" id="wRevealBtn">Reveal seed</button>
                         <button class="btn danger" id="wDeleteBtn">Delete</button>
                     </div>
@@ -151,10 +151,10 @@
             <div class="card">
                 <div class="card-h"><span class="t">AUTO-SIGN RULES</span><span class="m">per-site policy</span></div>
                 <div class="card-b">
-                    <p class="mut" style="font-size:10px">Auto-sign lets the Labs Platform place trades through your wallet without a prompt — but only if the request matches every rule. Per-site, transaction caps and a daily volume cap. <b>AccountDelete</b>, <b>SetRegularKey</b>, and <b>SignerListSet</b> are always blocked from auto-sign.</p>
+                    <p class="mut" style="font-size:10px">Auto-sign lets xrpsync.com place trades through your wallet without a prompt — but only if the request matches every rule. Per-site, transaction caps and a daily volume cap. <b>AccountDelete</b>, <b>SetRegularKey</b>, and <b>SignerListSet</b> are always blocked from auto-sign.</p>
                     <div class="hr"></div>
                     <div class="row" style="gap:6px">
-                        <input id="asNewSite" placeholder="site (e.g. lab.kyopsec.com)" />
+                        <input id="asNewSite" placeholder="site (e.g. xrpsync.com)" />
                         <button class="btn" id="asAddSite">Add site</button>
                     </div>
                     <div class="hr"></div>
@@ -208,7 +208,7 @@
                     </div>
                     <div class="field">
                         <label>Remote bridge URL (optional)</label>
-                        <input id="setBridgeUrl" placeholder="wss://lab.kyopsec.com/wallet-bridge" />
+                        <input id="setBridgeUrl" placeholder="wss://xrpsync.com/wallet-bridge" />
                     </div>
                     <div class="field">
                         <label>Remote bridge token</label>
@@ -257,7 +257,7 @@
                 <div class="card-b">
                     <p class="mut" style="font-size:10px;line-height:1.6">
                         Optional. Encrypts your wallet store with your master password and uploads
-                        the ciphertext to the Labs server. Lets you restore your wallets on a new
+                        the ciphertext to the XRPSync server. Lets you restore your wallets on a new
                         device after logging in. <b>The server never sees your master password</b>
                         and cannot read the blob.
                     </p>
@@ -299,7 +299,7 @@
                 <div class="card-b">
                     <div class="field">
                         <label>Label (optional)</label>
-                        <input id="nwLabel" placeholder="e.g. Growth Engine, Cold Storage…" />
+                        <input id="nwLabel" placeholder="e.g. Trading, Cold Storage…" />
                     </div>
                     <div class="field">
                         <label>Algorithm</label>
@@ -341,9 +341,9 @@
 
         <div id="paneAccountLogin" class="pane hidden">
             <div class="card">
-                <div class="card-h"><span class="t">LOG IN TO LABS</span><span class="m">your account · subscription</span></div>
+                <div class="card-h"><span class="t">LOG IN TO XRPSYNC</span><span class="m">your account · subscription</span></div>
                 <div class="card-b">
-                    <p class="mut" style="font-size:10px;margin-bottom:12px">Log in with your <b>lab.kyopsec.com</b> account to manage your subscription, pay tier upgrades on-ledger with XRP, and unlock premium features on the website.</p>
+                    <p class="mut" style="font-size:10px;margin-bottom:12px">Log in with your <b>xrpsync.com</b> account to manage your subscription, pay tier upgrades on-ledger with XRP, and unlock premium features on the website.</p>
                     <div class="field">
                         <label for="acctEmail">Email</label>
                         <input id="acctEmail" type="email" autocomplete="email" />
@@ -457,7 +457,7 @@
     </div>
 
     <div class="lw-foot">
-        <span>Labs Wallet · keys stay local</span>
+        <span>XRPSync Wallet · keys stay local</span>
         <span id="footMeta">—</span>
     </div>
 </div>

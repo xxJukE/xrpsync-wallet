@@ -1,6 +1,6 @@
-# Labs Wallet
+# XRPSync Wallet
 
-XRPL desktop wallet for the Labs Platform. Generate, store, and sign transactions
+XRPL desktop wallet for the XRPSync. Generate, store, and sign transactions
 locally — your private keys never leave the device.
 
 ## Features
@@ -9,7 +9,7 @@ locally — your private keys never leave the device.
 - AES-256-GCM encrypted-at-rest secret storage (PBKDF2 key derivation from your password)
 - Local transaction signing (`OfferCreate`, `Payment`, `TrustSet`, etc.)
 - **Auto-sign** with per-site rules (per-tx cap, daily cap, allowed types/pairs)
-- WebSocket bridge: pair the wallet with the Labs Platform website to sign trades
+- WebSocket bridge: pair the wallet with the XRPSync website to sign trades
 - Dark Matrix theme matching the XRP terminal
 
 ## Security model

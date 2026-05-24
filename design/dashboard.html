@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>XRPSync Wallet — Dashboard (design prototype)</title>
+<!--
+  DESIGN PROTOTYPE — not wired to the app. Standalone, open in a browser.
+  Fonts pulled from CDN here for preview; the real Electron app bundles
+  Inter + JetBrains Mono locally (CSP forbids remote font fetches).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0e14; --surface:#0d1520; --panel:#111720;
+  --accent:#00c087; --accent-dim:rgba(0,192,135,0.12); --accent-line:rgba(0,192,135,0.35);
+  --danger:#ef4444; --danger-dim:rgba(239,68,68,0.12);
+  --warn:#f59e0b; --warn-dim:rgba(245,158,11,0.12);
+  --text:#f0f4f8; --text-2:#8899aa; --muted:#4d6278;
+  --border:#1a2535; --border-active:#00c087;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,monospace;
+  --ui:'Inter',-apple-system,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:var(--ui); font-size:13px; line-height:1.5;
+  -webkit-font-smoothing:antialiased; overflow:hidden;
+}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)}
+.t2{color:var(--text-2)}
+
+/* ── App shell grid ─────────────────────────────────────────── */
+.app{
+  display:grid;
+  grid-template-columns:240px 1fr;
+  grid-template-rows:36px 1fr 24px;
+  grid-template-areas:'top top' 'side main' 'foot foot';
+  height:100vh;
+}
+
+/* ── Top bar ─────────────────────────────────────────────────── */
+.top{
+  grid-area:top; display:flex; align-items:center; justify-content:space-between;
+  padding:0 14px; background:var(--surface);
+  border-bottom:1px solid var(--border);
+}
+.brand{display:flex; align-items:center; gap:9px}
+.brand .logo{width:20px; height:20px; display:block}
+.brand .name{font-size:11px; font-weight:700; letter-spacing:0.18em; color:var(--text)}
+.top .status{display:flex; align-items:center; gap:16px; font-size:11px; color:var(--text-2)}
+.stat{display:flex; align-items:center; gap:6px}
+.dot{width:7px; height:7px; border-radius:50%; background:var(--muted); flex:none}
+.dot.on{background:var(--accent); box-shadow:0 0 0 0 rgba(0,192,135,0.5); animation:pulse 2.4s ease-in-out infinite}
+.dot.idle{background:var(--muted)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(0,192,135,0.5)}50%{box-shadow:0 0 0 4px rgba(0,192,135,0)}}
+.lockbtn{display:flex; align-items:center; gap:6px; color:var(--text-2); cursor:pointer; padding:4px 8px; border-radius:6px}
+.lockbtn:hover{color:var(--text); background:var(--panel)}
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+.side{grid-area:side; background:var(--surface); border-right:1px solid var(--border); overflow-y:auto; padding:14px 0}
+.side .grp{font-size:9px; font-weight:600; letter-spacing:0.16em; color:var(--muted); padding:14px 16px 8px}
+.side .grp:first-child{padding-top:2px}
+
+.wallet{
+  margin:0 10px 6px; padding:10px 12px; border-radius:10px;
+  border:1px solid transparent; cursor:pointer; transition:background .12s,border-color .12s;
+}
+.wallet:hover{background:var(--panel)}
+.wallet.sel{background:var(--panel); border-color:var(--accent-line)}
+.wallet .row1{display:flex; align-items:center; justify-content:space-between; gap:8px}
+.wallet .wname{font-weight:600; font-size:13px; color:var(--text); display:flex; align-items:center; gap:7px}
+.wallet .wname .wdot{width:6px; height:6px; border-radius:50%}
+.wallet .bal{font-family:var(--mono); font-size:12px; color:var(--text); white-space:nowrap}
+.wallet .bal small{color:var(--muted); font-size:10px; margin-left:2px}
+.wallet .row2{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:5px}
+.wallet .addr{font-family:var(--mono); font-size:10px; color:var(--muted)}
+.mode{font-size:9px; font-weight:600; letter-spacing:0.06em; padding:2px 7px; border-radius:20px; text-transform:uppercase}
+.mode.strategies{color:var(--accent); background:var(--accent-dim); border:1px solid var(--accent-line)}
+.mode.unassigned{color:var(--text-2); background:rgba(136,153,170,0.08); border:1px solid var(--border)}
+
+.addbtn{margin:8px 14px 0; padding:8px 10px; border:1px dashed var(--border); border-radius:8px;
+  color:var(--text-2); cursor:pointer; text-align:center; font-size:11px; transition:.12s}
+.addbtn:hover{color:var(--text); border-color:var(--accent-line)}
+
+.navitem{display:flex; align-items:center; gap:9px; padding:8px 16px; color:var(--text-2); cursor:pointer; font-size:12px}
+.navitem:hover{background:var(--panel); color:var(--text)}
+.navitem .ic{width:15px; text-align:center; opacity:.8}
+
+.acct{margin:6px 10px 0; padding:9px 12px; border-radius:10px; background:var(--panel); border:1px solid var(--border)}
+.acct .nm{display:flex; align-items:center; gap:7px; font-weight:600; font-size:12px}
+.acct .tier{font-size:8px; font-weight:700; letter-spacing:0.12em; padding:1px 6px; border-radius:4px; color:var(--accent); background:var(--accent-dim); border:1px solid var(--accent-line)}
+.acct .sub{font-size:10px; color:var(--muted); margin-top:4px; display:flex; align-items:center; gap:6px}
+
+/* ── Main / dashboard ────────────────────────────────────────── */
+.main{grid-area:main; overflow-y:auto; padding:20px 24px}
+
+.whead{display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:18px; flex-wrap:wrap}
+.whead .id .title{display:flex; align-items:center; gap:10px}
+.whead .id h1{font-size:20px; font-weight:700; letter-spacing:-0.01em}
+.pill{font-size:10px; font-weight:600; letter-spacing:0.04em; padding:3px 9px; border-radius:20px; border:1px solid var(--border); color:var(--text-2)}
+.pill.net{color:var(--accent); border-color:var(--accent-line); background:var(--accent-dim)}
+.whead .id .sub{display:flex; align-items:center; gap:8px; margin-top:7px}
+.whead .id .addr{font-family:var(--mono); font-size:12px; color:var(--text-2)}
+.copy{cursor:pointer; color:var(--muted); font-size:11px; padding:2px 6px; border-radius:5px}
+.copy:hover{color:var(--accent); background:var(--accent-dim)}
+
+.actions{display:flex; gap:8px; flex-wrap:wrap}
+.btn{font-family:var(--ui); font-size:12px; font-weight:600; padding:8px 16px; border-radius:8px;
+  border:1px solid var(--border); background:transparent; color:var(--text); cursor:pointer; transition:.12s; display:inline-flex; align-items:center; gap:7px}
+.btn:hover{border-color:var(--text-2)}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:#04130d}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{color:var(--text-2)}
+.btn.warn{color:var(--warn); border-color:var(--warn-dim)}
+.btn.warn:hover{border-color:var(--warn); background:var(--warn-dim)}
+.btn.danger{color:var(--danger); border-color:var(--danger-dim)}
+.btn.danger:hover{border-color:var(--danger); background:var(--danger-dim)}
+
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px}
+@media(max-width:1080px){.grid2{grid-template-columns:1fr}}
+
+.tile{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px 18px}
+.tile .lab{font-size:10px; font-weight:600; letter-spacing:0.12em; color:var(--muted); text-transform:uppercase}
+.tile .val{font-family:var(--mono); font-size:26px; font-weight:600; color:var(--text); margin-top:8px; letter-spacing:-0.02em}
+.tile .val .unit{font-size:13px; color:var(--text-2); margin-left:6px; font-weight:400}
+.tile .meta{font-size:11px; color:var(--text-2); margin-top:6px}
+
+.card{background:var(--surface); border:1px solid var(--border); border-radius:12px; margin-bottom:14px; overflow:hidden}
+.card .chead{display:flex; align-items:center; justify-content:space-between; padding:13px 18px; border-bottom:1px solid var(--border)}
+.card .chead .ct{font-size:12px; font-weight:600; letter-spacing:0.04em; display:flex; align-items:center; gap:8px}
+.card .chead .cm{font-size:11px; color:var(--muted)}
+.card .cbody{padding:16px 18px}
+
+/* mode/auto-sign status card */
+.modecard{display:flex; align-items:center; gap:14px}
+.modecard .badge{width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:20px; background:var(--accent-dim); border:1px solid var(--accent-line); flex:none}
+.modecard .txt h4{font-size:13px; font-weight:600}
+.modecard .txt p{font-size:11px; color:var(--text-2); margin-top:3px}
+.rule{display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid var(--border)}
+.rule .kv .k{font-size:9px; letter-spacing:0.1em; color:var(--muted); text-transform:uppercase}
+.rule .kv .v{font-family:var(--mono); font-size:13px; color:var(--text); margin-top:3px}
+.rule .kv .v.ok{color:var(--accent)}
+.usebar{flex:1; min-width:160px}
+.usebar .top{display:flex; justify-content:space-between; font-size:10px; color:var(--text-2); margin-bottom:5px; background:none; border:none; padding:0}
+.track{height:6px; border-radius:3px; background:rgba(136,153,170,0.14); overflow:hidden}
+.fill{height:100%; background:var(--accent); border-radius:3px}
+
+/* activity table */
+table{width:100%; border-collapse:collapse; font-size:12px}
+thead th{font-size:9px; font-weight:600; letter-spacing:0.1em; color:var(--muted); text-transform:uppercase; text-align:left; padding:8px 18px}
+tbody td{padding:11px 18px; border-top:1px solid var(--border)}
+tbody tr:hover{background:var(--panel)}
+.num{text-align:right; font-family:var(--mono)}
+.tag{font-size:9px; font-weight:600; letter-spacing:0.06em; padding:2px 7px; border-radius:5px; text-transform:uppercase}
+.tag.sell{color:var(--danger); background:var(--danger-dim)}
+.tag.buy{color:var(--accent); background:var(--accent-dim)}
+.tag.auto{color:var(--text-2); background:rgba(136,153,170,0.1); border:1px solid var(--border)}
+.res-ok{color:var(--accent)}
+.txid{font-family:var(--mono); font-size:11px; color:var(--muted)}
+
+/* site state (mirrors the server-side mode on xrpsync.com) */
+.sitestate{display:flex; align-items:center; gap:10px; margin-bottom:14px; padding:11px 15px; border-radius:10px; border:1px solid var(--border); font-size:12px; font-weight:500}
+.sitestate .sdot{width:8px; height:8px; border-radius:50%; flex:none}
+.sitestate .slink{margin-left:auto; font-weight:600; text-decoration:none}
+.sitestate.live{border-color:var(--accent-line); background:var(--accent-dim); color:var(--accent)}
+.sitestate.live .sdot{background:var(--accent); animation:pulse 2.4s ease-in-out infinite}
+.sitestate.live .slink{color:var(--accent)}
+.sitestate.paper{border-color:rgba(245,158,11,0.35); background:var(--warn-dim); color:var(--warn)}
+.sitestate.paper .sdot{background:var(--warn)}
+.sitestate.paper .slink{color:var(--warn)}
+
+/* trust-model help note inside the mode card */
+.helprow{display:flex; align-items:flex-start; gap:8px; margin-top:14px; padding-top:14px; border-top:1px solid var(--border); font-size:11px; color:var(--text-2); line-height:1.5}
+.helprow .hi{color:var(--muted); flex:none}
+
+/* table empty state */
+.empty{padding:34px 18px; text-align:center}
+.empty .em{font-size:12px; color:var(--text-2); max-width:430px; margin:0 auto 16px; line-height:1.65}
+
+.foot{grid-area:foot; background:var(--surface); border-top:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between; padding:0 14px;
+  font-size:10px; color:var(--muted); letter-spacing:0.04em}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- TOP BAR -->
+  <div class="top">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="XRPSync">
+        <path d="M5 11a11 11 0 0 1 19-3" stroke="#00c087" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M27 21a11 11 0 0 1-19 3" stroke="#00c087" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M24 5.5V9h-3.5M8 26.5V23h3.5" stroke="#00c087" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="16" y="20.5" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" font-weight="800" fill="#00c087">XR</text>
+      </svg>
+      <span class="name">XRPSYNC WALLET</span>
+    </div>
+    <div class="status">
+      <span class="stat"><span class="dot idle"></span>Mainnet</span>
+      <span class="stat"><span class="dot on"></span>xrpsync.com · live</span>
+      <span class="lockbtn">🔒 Lock</span>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="side">
+    <div class="grp">Wallets</div>
+
+    <div class="wallet sel">
+      <div class="row1">
+        <span class="wname"><span class="wdot" style="background:var(--accent)"></span>Trading</span>
+        <span class="bal">800<small>XRP</small></span>
+      </div>
+      <div class="row2">
+        <span class="addr">rXXX…abc</span>
+        <span class="mode strategies">Strategies</span>
+      </div>
+    </div>
+
+    <div class="wallet">
+      <div class="row1">
+        <span class="wname"><span class="wdot" style="background:var(--muted)"></span>Accumulation</span>
+        <span class="bal">2,400<small>XRP</small></span>
+      </div>
+      <div class="row2">
+        <span class="addr">rXXX…xyz</span>
+        <span class="mode unassigned">Unassigned</span>
+      </div>
+    </div>
+
+    <div class="addbtn">+ New wallet</div>
+    <div class="addbtn" style="margin-top:6px">↓ Import wallet</div>
+
+    <div class="grp">Tools</div>
+    <div class="navitem"><span class="ic">⚙</span>Auto-sign rules</div>
+    <div class="navitem"><span class="ic">⤓</span>Backup &amp; restore</div>
+    <div class="navitem"><span class="ic">☰</span>Settings</div>
+
+    <div class="grp">Account</div>
+    <div class="acct">
+      <div class="nm"><span class="dot on" style="width:6px;height:6px"></span>Douglas <span class="tier">PRO</span></div>
+      <div class="sub"><span>☁ Synced · 2m ago</span></div>
+    </div>
+  </div>
+
+  <!-- MAIN / DASHBOARD -->
+  <div class="main">
+
+    <!-- wallet identity + actions -->
+    <div class="whead">
+      <div class="id">
+        <div class="title">
+          <h1>Trading</h1>
+          <span class="pill net">● Mainnet</span>
+          <span class="mode strategies">Strategies</span>
+        </div>
+        <div class="sub">
+          <span class="addr">rXXXXXXXXXXXXXXXXXXXXXXXXXXXabc</span>
+          <span class="copy">⧉ Copy</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn primary">↗ Send</button>
+        <button class="btn">💳 Fund</button>
+        <button class="btn warn">👁 Reveal seed</button>
+        <button class="btn danger">🗑 Delete</button>
+      </div>
+    </div>
+
+    <!-- balances -->
+    <div class="grid2">
+      <div class="tile">
+        <div class="lab">XRP Balance</div>
+        <div class="val">800.00<span class="unit">XRP</span></div>
+        <div class="meta">≈ $1,075.28 · 12 XRP reserved</div>
+      </div>
+      <div class="tile">
+        <div class="lab">RLUSD</div>
+        <div class="val">1,240.50<span class="unit">RLUSD</span></div>
+        <div class="meta">Trustline active · issuer rMxC…m5De</div>
+      </div>
+    </div>
+
+    <!-- wallet mode + active auto-sign rule -->
+    <div class="card">
+      <div class="chead">
+        <span class="ct">Wallet mode</span>
+        <span class="cm">how this wallet is used</span>
+      </div>
+      <div class="cbody">
+        <div class="modecard">
+          <div class="badge">📈</div>
+          <div class="txt">
+            <h4>Strategies</h4>
+            <p>Auto-signs requests from xrpsync.com that match your rule below.</p>
+          </div>
+        </div>
+        <div class="helprow">
+          <span class="hi">ⓘ</span>
+          <span>Strategies mode signs both manual trades and strategy-system trades that match your rule below. Other transactions still prompt.</span>
+        </div>
+        <div class="rule">
+          <div class="kv"><div class="k">Site</div><div class="v ok">xrpsync.com</div></div>
+          <div class="kv"><div class="k">Pair</div><div class="v">XRP / RLUSD</div></div>
+          <div class="kv"><div class="k">Max / tx</div><div class="v">500 XRP</div></div>
+          <div class="usebar">
+            <div class="top"><span>Daily used</span><span>740 / 2,000 XRP</span></div>
+            <div class="track"><div class="fill" style="width:37%"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Site state — reflects the mode set on xrpsync.com (server-side; the
+         wallet has no paper mode of its own). Mock BOTH; State B (paper) is
+         the ACTIVE one rendered. State A (live) is commented for reference. -->
+    <!-- STATE A — LIVE (uncomment to preview):
+    <div class="sitestate live">
+      <span class="sdot"></span>
+      <span>xrpsync.com · live · your wallet is active</span>
+    </div>
+    -->
+    <!-- STATE B — PAPER (active) -->
+    <div class="sitestate paper">
+      <span class="sdot"></span>
+      <span>xrpsync.com · paper trading · your wallet is idle</span>
+      <a class="slink" href="https://xrpsync.com/exchange#strategies">View paper trades →</a>
+    </div>
+
+    <!-- recent activity -->
+    <div class="card">
+      <div class="chead">
+        <span class="ct">Recent activity</span>
+        <span class="cm">on-ledger · paper mode</span>
+      </div>
+      <div class="empty">
+        <div class="em">No on-ledger activity. Your strategy trades are running in paper mode — view them at xrpsync.com → Strategies.</div>
+        <a class="btn ghost" href="https://xrpsync.com/exchange#strategies">View on xrpsync.com →</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="foot">
+    <span>XRPSync Wallet · keys stay local</span>
+    <span>v1.0.0 · bridge :17760</span>
+  </div>
+
+</div>
+</body>
+</html>

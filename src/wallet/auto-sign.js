@@ -1,7 +1,7 @@
 // auto-sign.js — rules engine that decides whether an inbound sign request can be
 // auto-approved without user interaction.
 //
-// Rules are stored per-site (e.g. "kyopsec.com" or "lab.kyopsec.com"). Each site has its
+// Rules are stored per-site (e.g. "xrpsync.com" or "xrpsync.com"). Each site has its
 // own caps. A request is auto-signed only if EVERY check passes.
 //
 // HARD-BLOCKS (never auto-signed regardless of rules):

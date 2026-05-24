@@ -86,7 +86,7 @@ contextBridge.exposeInMainWorld('labs', {
         open: (address) => invoke('onramp:open', { address }),
     },
 
-    // ── Labs account / subscription ──
+    // ── XRPSync account / subscription ──
     account: {
         status:       ()                          => invoke('account:status'),
         login:        (email, password, opts)     => invoke('account:login', { email, password, ...(opts || {}) }),

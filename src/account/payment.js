@@ -1,6 +1,6 @@
 // account/payment.js — one-call subscription upgrade flow inside the wallet.
 //
-// Glue between Labs API + existing XRPL signing modules. Builds a Payment
+// Glue between XRPSync API + existing XRPL signing modules. Builds a Payment
 // transaction from the server's `initiate` response, signs it with the
 // user's seed (requires master password unlock at this point — same model
 // as the Send pane), submits to XRPL, then verifies on the server.
@@ -17,7 +17,7 @@ function hex(s) {
  * Run the full upgrade flow.
  *
  * @param {object} deps
- *   token        — Labs Bearer token
+ *   token        — XRPSync Bearer token
  *   tierSlug     — 'pro' | 'growth'
  *   address      — XRPL address paying from (active wallet)
  *   password     — master password (used to reveal the seed)
@@ -29,7 +29,7 @@ function hex(s) {
  * @returns {Promise<object>} { tx_hash, tier, expires_at, payment_id, signed }
  */
 async function upgrade({ token, tierSlug, address, password, store, sign, xrpl, submit }) {
-    if (!token) throw new Error('not logged in to Labs');
+    if (!token) throw new Error('not logged in to XRPSync');
     if (!tierSlug) throw new Error('tier required');
     if (!address) throw new Error('no active wallet address');
     if (!password) throw new Error('master password required');

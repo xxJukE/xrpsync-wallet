@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Labs Wallet — install + launch script for macOS / Linux.
+# XRPSync Wallet — install + launch script for macOS / Linux.
 # Use this until the GitHub Actions build is producing signed installers.
 #
 # Requirements:
@@ -30,7 +30,7 @@ ok()   { printf "\033[1;32m✓\033[0m %s\n" "$*"; }
 warn() { printf "\033[1;33m!\033[0m %s\n" "$*" >&2; }
 die()  { printf "\033[1;31m✗\033[0m %s\n" "$*" >&2; exit "${2:-1}"; }
 
-bold "Labs Wallet · install helper"
+bold "XRPSync Wallet · install helper"
 
 # ── Prereq check ────────────────────────────────────────────────────────────
 command -v node >/dev/null 2>&1 || die "Node.js is required. Install Node 20 from https://nodejs.org and retry." 1
@@ -38,7 +38,7 @@ command -v npm  >/dev/null 2>&1 || die "npm is required (it ships with Node.js).
 
 NODE_MAJOR="$(node -p 'process.versions.node.split(\".\")[0]' 2>/dev/null || echo 0)"
 if [ "$NODE_MAJOR" -lt 20 ]; then
-    warn "Node $NODE_MAJOR detected; Labs Wallet needs Node 20+. The build may fail."
+    warn "Node $NODE_MAJOR detected; XRPSync Wallet needs Node 20+. The build may fail."
 fi
 
 ok "Node $(node -v) · npm $(npm -v)"
@@ -72,7 +72,7 @@ case "$MODE" in
         exit 0
         ;;
     *)
-        bold "Launching Labs Wallet (dev mode)…"
+        bold "Launching XRPSync Wallet (dev mode)…"
         npm start || die "npm start failed" 3
         ;;
 esac

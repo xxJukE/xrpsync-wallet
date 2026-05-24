@@ -1,4 +1,4 @@
-// Labs Wallet — Electron main process.
+// XRPSync Wallet — Electron main process.
 // Owns BrowserWindow, IPC handlers, and the local site bridge.
 // All cryptographic operations happen in the main process via the modules in src/wallet/.
 // The renderer (UI) speaks to main only through the contextBridge API exposed in preload.js.
@@ -22,7 +22,7 @@ let keytar = null;
 const KEYTAR_SERVICE = 'labs-wallet';
 const KEYTAR_ACCOUNT = 'master-password';
 
-const LABS_API_BASE = process.env.LABS_API_BASE || 'https://lab.kyopsec.com';
+const LABS_API_BASE = process.env.LABS_API_BASE || 'https://xrpsync.com';
 let pendingSyncTimer = null;
 
 let mainWindow = null;
@@ -43,7 +43,7 @@ function createMainWindow() {
         minWidth: 960,
         minHeight: 640,
         backgroundColor: '#0a0e14',
-        title: 'Labs Wallet',
+        title: 'XRPSync Wallet',
         icon: path.join(__dirname, 'assets', 'icon.png'),
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
@@ -92,7 +92,7 @@ function buildMenu() {
         {
             label: 'Help',
             submenu: [
-                { label: 'About Labs Wallet', click: () => dialog.showMessageBox(mainWindow, { title: 'Labs Wallet', message: 'Labs Wallet ' + app.getVersion(), detail: 'XRPL desktop wallet · keys never leave your device.' }) },
+                { label: 'About XRPSync Wallet', click: () => dialog.showMessageBox(mainWindow, { title: 'XRPSync Wallet', message: 'XRPSync Wallet ' + app.getVersion(), detail: 'XRPL desktop wallet · keys never leave your device.' }) },
                 { label: 'Open data folder', click: () => shell.showItemInFolder(app.getPath('userData')) },
             ],
         },
@@ -249,7 +249,7 @@ function registerIpc() {
         if (!stored) return { ok: false, reason: 'no_password_in_keychain' };
 
         if (process.platform === 'darwin' && systemPreferences?.canPromptTouchID?.()) {
-            try { await systemPreferences.promptTouchID('reveal Labs Wallet master password'); }
+            try { await systemPreferences.promptTouchID('reveal XRPSync Wallet master password'); }
             catch (_) { return { ok: false, reason: 'os_auth_failed' }; }
             return { ok: true, password: stored };
         }
@@ -387,7 +387,7 @@ function registerIpc() {
         ensureUnlocked();
         const blob = await WalletBackup.exportAll(password);
         const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-            title: 'Save Labs Wallet backup',
+            title: 'Save XRPSync Wallet backup',
             defaultPath: `labs-wallet-backup-${new Date().toISOString().slice(0,10)}.json`,
             filters: [{ name: 'JSON', extensions: ['json'] }],
         });
@@ -397,7 +397,7 @@ function registerIpc() {
     });
     ipcMain.handle('backup:import', async (_e, { password }) => {
         const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-            title: 'Open Labs Wallet backup',
+            title: 'Open XRPSync Wallet backup',
             filters: [{ name: 'JSON', extensions: ['json'] }],
             properties: ['openFile'],
         });
@@ -437,11 +437,11 @@ function registerIpc() {
     }));
     ipcMain.handle('bridge:configure-remote', (_e, { url, token }) => BridgeRemote.configure({ url, token }));
 
-    // Fund Wallet — opens lab.kyopsec.com/buy-xrp in the user's default browser.
-    // Restricted to the Labs Platform host so a compromised renderer can't open arbitrary
+    // Fund Wallet — opens xrpsync.com/buy-xrp in the user's default browser.
+    // Restricted to the XRPSync host so a compromised renderer can't open arbitrary
     // URLs. Address is passed through unchanged so the on-ramp can pre-fill it.
     ipcMain.handle('onramp:open', async (_e, { address } = {}) => {
-        const base = 'https://lab.kyopsec.com/buy-xrp';
+        const base = 'https://xrpsync.com/buy-xrp';
         const u = new URL(base);
         if (address && /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(String(address))) {
             u.searchParams.set('address', address);
@@ -450,7 +450,7 @@ function registerIpc() {
         return { ok: true };
     });
 
-    // ── Labs account (subscription / login) ──
+    // ── XRPSync account (subscription / login) ──
     ipcMain.handle('account:status', () => ({
         logged_in: AccountSession.isLoggedIn(),
         user:      AccountSession.getUser(),
@@ -512,7 +512,7 @@ function registerIpc() {
     ipcMain.handle('account:upgrade', async (_e, { tierSlug, address, password }) => {
         ensureUnlocked();
         const token = AccountSession.getToken();
-        if (!token) throw new Error('not logged in to Labs');
+        if (!token) throw new Error('not logged in to XRPSync');
         const result = await AccountPayment.upgrade({
             token,
             tierSlug,
@@ -623,7 +623,7 @@ function startBridges() {
         getBalances:        getWalletBalances,
     });
 
-    // Remote relay (wallet → KyOpSec server) — only connects when configured
+    // Remote relay (wallet → XRPSync server) — only connects when configured
     BridgeRemote.start({
         onSignRequest: (req) => onSignRequest(req, 'remote'),
     });
@@ -640,7 +640,7 @@ function getWalletInfoSync() {
     console.log('[main] getWalletInfoSync: address=' + (address || 'null'));
     if (!address) return null;
 
-    // Attach the Labs account tier (if logged in) so the website knows
+    // Attach the XRPSync account tier (if logged in) so the website knows
     // immediately what features to unlock — no extra round-trip needed.
     let account = null;
     try {
@@ -710,7 +710,7 @@ function showApprovalWindow(req) {
         width: 540,
         height: 640,
         backgroundColor: '#0a0e14',
-        title: 'Labs Wallet — Approve transaction',
+        title: 'XRPSync Wallet — Approve transaction',
         parent: mainWindow,
         modal: false,
         alwaysOnTop: true,

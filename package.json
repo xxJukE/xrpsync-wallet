@@ -1,9 +1,9 @@
 {
-  "name": "labs-wallet",
+  "name": "xrpsync-wallet",
   "version": "1.0.0",
-  "description": "Labs Wallet — XRPL desktop wallet with auto-sign for the Labs Platform.",
+  "description": "XRPSync Wallet — XRPL desktop wallet with auto-sign for XRPSync.",
   "main": "main.js",
-  "author": "Labs Platform",
+  "author": "XRPSync",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -29,8 +29,9 @@
   },
   "build": {
     "extends": null,
-    "appId": "com.labs.wallet",
-    "productName": "Labs Wallet",
+    "appId": "com.xrpsync.wallet",
+    "productName": "XRPSync Wallet",
+    "artifactName": "XRPSync-Wallet-Setup-${version}.${ext}",
     "files": [
       "main.js",
       "preload.js",

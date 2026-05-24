@@ -1,5 +1,5 @@
 // server.js — local WebSocket server (loopback only).
-// The Labs Platform website (running in the user's browser) connects to
+// The XRPSync website (running in the user's browser) connects to
 // ws://127.0.0.1:17760 to send sign requests. Refuses any non-loopback connection.
 //
 // Greeting sequence on every browser connection:
@@ -101,7 +101,7 @@ function greetSync(ws) {
     }
 
     // Greeting fires NOW. Zero balances by default — XRPL failure cannot block this.
-    // Includes the Labs account tier (if logged in) so the website unlocks
+    // Includes the XRPSync account tier (if logged in) so the website unlocks
     // premium features on first contact without an extra HTTP round-trip.
     trySend(ws, {
         type: 'wallet_connected',

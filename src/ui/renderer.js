@@ -247,7 +247,7 @@ $('wSendBtn').addEventListener('click', () => {
     showPane('send');
 });
 
-// Fund Wallet — open lab.kyopsec.com/buy-xrp in the default browser with the
+// Fund Wallet — open xrpsync.com/buy-xrp in the default browser with the
 // active wallet address pre-filled. Settlement happens on-ramp side; the
 // wallet just refreshes balances when the user comes back.
 $('wFundBtn')?.addEventListener('click', async () => {
@@ -661,7 +661,7 @@ window.labs.on.autoSigned((p) => {
     if (state.pane === 'auto-sign') refreshAutoSign();
 });
 
-// ── Labs account ────────────────────────────────────────────────────────────
+// ── XRPSync account ────────────────────────────────────────────────────────────
 const account = {
     state: { user: null, subscription: null, pendingTier: null, pendingInitiate: null },
 
@@ -701,7 +701,7 @@ const account = {
             meta = 'Expires ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         }
         $('acctSidebarMeta').textContent = meta || '—';
-        try { document.title = 'Labs Wallet — ' + (u.name || u.email) + (u.tier !== 'free' ? ' [' + u.tier.toUpperCase() + ']' : ''); } catch (_) {}
+        try { document.title = 'XRPSync Wallet — ' + (u.name || u.email) + (u.tier !== 'free' ? ' [' + u.tier.toUpperCase() + ']' : ''); } catch (_) {}
     },
 
     async login() {
@@ -727,7 +727,7 @@ const account = {
     },
 
     async logout() {
-        if (!window.confirm('Log out of your Labs account on this device?')) return;
+        if (!window.confirm('Log out of your XRPSync account on this device?')) return;
         await window.labs.account.logout();
         this.state.user = null;
         this.state.subscription = null;
@@ -772,13 +772,12 @@ const account = {
                 feats.wall_tracker && 'Wall Tracking',
                 feats.external_prices && 'External Prices',
                 feats.momentum && 'Momentum',
-                feats.growth_engine && 'Growth Engine',
                 feats.auto_sign && 'Auto-Sign',
                 feats.priority_alerts && 'Priority Alerts',
                 feats.bot_alerts && 'Bot Alerts',
             ].filter(Boolean);
             const featsHtml = t.slug === 'free'
-                ? '<li>XRP News</li><li>Ecosystem Map</li><li>Community</li><li>Full Chart</li><li>Full Orderbook</li><li>Labs Wallet</li><li>Manual Trade</li>'
+                ? '<li>XRP News</li><li>Ecosystem Map</li><li>Community</li><li>Full Chart</li><li>Full Orderbook</li><li>XRPSync Wallet</li><li>Manual Trade</li>'
                 : (t.slug === 'pro'
                     ? '<li>Everything Free +</li>' + include.slice(0,4).map(f => `<li>${f}</li>`).join('')
                     : '<li>Everything Pro +</li>' + include.slice(4).map(f => `<li>${f}</li>`).join(''));
@@ -891,7 +890,7 @@ async function maybeOfferCloudRestore() {
     if (!s.has_backup) return;
     const localCount = (await window.labs.wallet.list()).length;
     if (localCount > 0) return;
-    const pw = window.prompt('A wallet backup was found on your Labs account.\n\nEnter the master password used when it was created to restore your wallets:');
+    const pw = window.prompt('A wallet backup was found on your XRPSync account.\n\nEnter the master password used when it was created to restore your wallets:');
     if (!pw) return;
     const r = await window.labs.sync.restoreFromCloud(pw);
     if (r.ok) window.alert('Restored ' + r.imported + ' wallet' + (r.imported === 1 ? '' : 's') + ' from cloud backup.');
@@ -901,7 +900,7 @@ async function maybeOfferCloudRestore() {
 $('acctLoginBtn')?.addEventListener('click', () => account.login());
 $('acctPassword')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') account.login(); });
 $('acctEmail')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('acctPassword').focus(); });
-$('acctRegisterBtn')?.addEventListener('click', () => { try { window.open('https://lab.kyopsec.com/register', '_blank'); } catch (_) {} });
+$('acctRegisterBtn')?.addEventListener('click', () => { try { window.open('https://xrpsync.com/register', '_blank'); } catch (_) {} });
 $('acctLogoutBtn')?.addEventListener('click', () => account.logout());
 $('acctRefreshBtn')?.addEventListener('click', () => account.refresh());
 $('acctPayCancel')?.addEventListener('click', () => account.cancelUpgrade());
