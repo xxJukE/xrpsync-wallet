@@ -18,7 +18,7 @@ const crypto = require('crypto');
 const Store  = require('electron-store');
 
 let argon2 = null;
-try { argon2 = require('argon2'); }
+try { argon2 = require('@node-rs/argon2'); }
 catch (_) { /* Surface a clear error the first time it's actually needed. */ }
 
 const PBKDF2_ITERS    = 200_000;
@@ -28,14 +28,14 @@ const VERIFY_PLAINTEXT = 'labs-wallet-verify';
 
 // Argon2id parameters. Targets ~100ms on a modern laptop; raises the cost of a
 // stolen `labs-wallet-data.json` from "a few GPU hours" to "infeasible without
-// the actual password."
+// the actual password." @node-rs/argon2 returns a PHC string; deriveKeyArgon2
+// extracts the raw 32-byte hash — byte-identical to the prior argon2@0.40.3
+// `raw: true` output for these params (verified by scripts/argon2-compat-test.js).
 const ARGON2_PARAMS = {
-    type: () => argon2.argon2id,
     memoryCost: 65536,    // 64 MB
     timeCost: 3,
     parallelism: 4,
     hashLength: 32,
-    raw: true,
 };
 
 let store = null;
@@ -106,33 +106,44 @@ async function setMasterPassword(password) {
 async function unlock(password) {
     if (failedAttempts >= 3) {
         const cooldown = Math.min(60_000 * Math.pow(2, failedAttempts - 3), 600_000);
-        if (Date.now() - lastFailedAt < cooldown) return false;
+        if (Date.now() - lastFailedAt < cooldown) return { ok: false, error: 'cooldown' };
     }
     const m = store.get('master');
-    if (!m) return false;
+    if (!m) return { ok: false, error: 'no_master' };
 
+    // Derive the key. A THROW here is an engine fault (e.g. the argon2 native
+    // module failed to load) — NOT a wrong password. A wrong password still
+    // derives a (wrong) key and only fails the verify step below. So we must
+    // not count a derivation throw against the user or trip the cooldown —
+    // otherwise a broken build silently locks people out of valid wallets.
+    let key;
     try {
-        const key = await deriveKeyForMaster(m, password);
-        if (!verifyKeyAgainstMaster(m, key)) throw new Error('bad_token');
+        key = await deriveKeyForMaster(m, password);
+    } catch (e) {
+        console.error('[storage] KDF engine unavailable on unlock:', e?.message || e);
+        return { ok: false, error: 'engine_unavailable' };
+    }
 
-        unlockedKey = key;
-        unlockedPasswordRef = password;
-        failedAttempts = 0;
-
-        // Legacy PBKDF2 master? Re-key transparently using Argon2id while we
-        // hold the password in-memory. The on-disk wallet ciphertexts stay
-        // valid because they were encrypted with the same `key` that we just
-        // re-derived (well-formed AES key); only the verify block changes.
-        if ((m.kdf || 'pbkdf2') === 'pbkdf2' && argon2) {
-            try { await migrateMasterToArgon2id(password); }
-            catch (e) { console.warn('[storage] argon2id migration deferred', e?.message || e); }
-        }
-        return true;
-    } catch (_) {
+    if (!verifyKeyAgainstMaster(m, key)) {
+        // Genuine wrong password — penalize and apply the cooldown as before.
         failedAttempts++;
         lastFailedAt = Date.now();
-        return false;
+        return { ok: false, error: 'bad_password' };
     }
+
+    unlockedKey = key;
+    unlockedPasswordRef = password;
+    failedAttempts = 0;
+
+    // Legacy PBKDF2 master? Re-key transparently using Argon2id while we
+    // hold the password in-memory. The on-disk wallet ciphertexts stay
+    // valid because they were encrypted with the same `key` that we just
+    // re-derived (well-formed AES key); only the verify block changes.
+    if ((m.kdf || 'pbkdf2') === 'pbkdf2' && argon2) {
+        try { await migrateMasterToArgon2id(password); }
+        catch (e) { console.warn('[storage] argon2id migration deferred', e?.message || e); }
+    }
+    return { ok: true };
 }
 
 function lock() {
@@ -153,15 +164,21 @@ function getUnlockedPassword() {
 
 async function deriveKeyArgon2(password, salt) {
     if (!argon2) throw new Error('argon2_unavailable');
-    return argon2.hash(password, {
-        type: argon2.argon2id,
-        memoryCost: ARGON2_PARAMS.memoryCost,
-        timeCost:   ARGON2_PARAMS.timeCost,
+    // @node-rs/argon2.hash() returns a PHC string:
+    //   $argon2id$v=19$m=65536,t=3,p=4$<saltB64>$<hashB64>
+    // The final segment is the raw hash; base64-decode it to the 32-byte AES key.
+    // version omitted ⇒ default 0x13 (19), matching argon2@0.40.3. Byte-identical
+    // to the prior `raw: true` derivation (proven in scripts/argon2-compat-test.js).
+    const algorithm = (argon2.Algorithm && argon2.Algorithm.Argon2id != null) ? argon2.Algorithm.Argon2id : 2;
+    const phc = await argon2.hash(password, {
+        algorithm,
+        memoryCost:  ARGON2_PARAMS.memoryCost,
+        timeCost:    ARGON2_PARAMS.timeCost,
         parallelism: ARGON2_PARAMS.parallelism,
-        hashLength:  ARGON2_PARAMS.hashLength,
+        outputLen:   ARGON2_PARAMS.hashLength,
         salt,
-        raw: true,
     });
+    return Buffer.from(String(phc).split('$').pop(), 'base64');
 }
 
 async function deriveKeyPbkdf2(password, salt) {

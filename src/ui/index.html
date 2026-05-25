@@ -56,7 +56,11 @@
         <span class="status">
             <span><span id="netDot" class="dot"></span><span id="netLabel">connecting…</span></span>
             <span><span id="bridgeDot" class="dot"></span><span id="bridgeLabel">bridge: idle</span></span>
-            <span id="lockBtn" style="cursor:pointer">🔒 LOCK</span>
+            <span class="lock-state">
+                <span id="lockDot" class="dot"></span><span id="lockStateLabel">LOCKED</span>
+                <span id="lockCountdown" class="mut" style="margin-left:6px"></span>
+                <span id="lockNowBtn" style="cursor:pointer;margin-left:8px;display:none">Lock&nbsp;now</span>
+            </span>
         </span>
     </div>
 
@@ -459,6 +463,50 @@
     <div class="lw-foot">
         <span>XRPSync Wallet · keys stay local</span>
         <span id="footMeta">—</span>
+    </div>
+</div>
+
+<!-- Reusable password / text-confirmation modal — Electron's renderer has no
+     window.prompt(); promptModal() in renderer.js drives this. Reuses lock-overlay styling. -->
+<div id="pwModal" class="lock-overlay" style="z-index:1100">
+    <div class="lock-card" style="max-width:420px">
+        <div class="ttl" id="pwModalTitle">CONFIRM</div>
+        <p class="mut" id="pwModalMsg" style="font-size:10px;line-height:1.6;margin-bottom:14px;white-space:pre-line"></p>
+        <div class="field">
+            <input id="pwModalInput" type="password" autocomplete="off" />
+        </div>
+        <div class="row" style="gap:8px;margin-top:6px">
+            <button id="pwModalOk" class="btn" style="flex:1">OK</button>
+            <button id="pwModalCancel" class="btn ghost" style="flex:1">Cancel</button>
+        </div>
+        <div id="pwModalErr" class="err"></div>
+    </div>
+</div>
+
+<!-- Generic info modal (replaces window.alert in flows we own). -->
+<div id="infoModal" class="lock-overlay" style="z-index:1150">
+    <div class="lock-card" style="max-width:420px">
+        <div class="ttl" id="infoModalTitle">NOTICE</div>
+        <p class="mut" id="infoModalMsg" style="font-size:11px;line-height:1.6;margin-bottom:16px;white-space:pre-line"></p>
+        <button id="infoModalOk" class="btn" style="width:100%">OK</button>
+    </div>
+</div>
+
+<!-- Seed reveal modal — shows the secret with a copy button + 60s auto-clear. -->
+<div id="seedModal" class="lock-overlay" style="z-index:1200">
+    <div class="lock-card" style="max-width:480px">
+        <div class="ttl" style="color:var(--term-warn,#f7c948)">&#9888; WALLET SEED</div>
+        <p class="mut" style="font-size:10px;line-height:1.6;margin-bottom:14px">
+            Anyone with this seed has full control of your wallet. Never share it. Never type it into a website.
+        </p>
+        <div style="border:1px solid var(--term-line,#1f2731);border-radius:4px;background:#0a0e14;padding:12px;margin-bottom:14px">
+            <code id="seedModalValue" class="tabular" style="display:block;font-size:13px;line-height:1.6;color:var(--term-fg);word-break:break-all;user-select:text;cursor:text"></code>
+        </div>
+        <div class="row" style="gap:8px">
+            <button id="seedModalCopy" class="btn ghost" style="flex:1">Copy seed</button>
+            <button id="seedModalDone" class="btn" style="flex:1">Done</button>
+        </div>
+        <div class="mut" style="font-size:10px;margin-top:12px">Auto-clears in <span id="seedModalTimer">60</span> seconds.</div>
     </div>
 </div>
 

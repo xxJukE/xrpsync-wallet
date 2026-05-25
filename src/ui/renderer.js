@@ -18,6 +18,7 @@ const shortAddr = (a) => a ? a.slice(0, 6) + '…' + a.slice(-4) : '—';
 // ── Lock screen ─────────────────────────────────────────────────────────────
 async function bootLockState() {
     const s = await window.labs.lock.status();
+    if (typeof s.lockMs === 'number') _lockMs = s.lockMs;
     if (!s.hasMaster) {
         // Brand-new install → auto-generate the master password and walk the
         // user through saving it. We don't ever expose the legacy "type your
@@ -27,6 +28,9 @@ async function bootLockState() {
     }
     if (s.locked) {
         $('lockOverlay').classList.add('is-open');
+        setLockUI(true);
+    } else {
+        setLockUI(false);
     }
 }
 
@@ -80,7 +84,12 @@ $('lockSubmit').addEventListener('click', async () => {
             await window.labs.lock.setMaster(pw);
         } else {
             const r = await window.labs.lock.unlock(pw);
-            if (!r.ok) { $('lockErr').textContent = 'wrong password'; return; }
+            if (!r.ok) {
+                $('lockErr').textContent = r.error === 'engine_unavailable'
+                    ? 'Wallet engine failed to load. Your funds are safe — this is an app bug, not a wrong password. Do not reinstall or reset the wallet. Contact support.'
+                    : 'wrong password';
+                return;
+            }
         }
         $('lockOverlay').classList.remove('is-open');
         $('lockPw').value = ''; $('lockPwConfirm').value = '';
@@ -91,13 +100,61 @@ $('lockSubmit').addEventListener('click', async () => {
 $('lockPw').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('lockSubmit').click(); });
 $('lockPwConfirm')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('lockSubmit').click(); });
 
-$('lockBtn').addEventListener('click', async () => {
+// ── Lock-state chip + auto-lock countdown ──────────────────────────────────
+let _lockMs = 300000;          // mirrors main.js lockMs; refreshed from lock:status / ui:unlocked / set-timeout
+let _lockDeadline = 0;
+let _lockTick = null;
+
+function fmtCountdown(ms) {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+function stopLockCountdown() {
+    if (_lockTick) { clearInterval(_lockTick); _lockTick = null; }
+    const c = $('lockCountdown'); if (c) c.textContent = '';
+}
+function startLockCountdown() {
+    _lockDeadline = Date.now() + _lockMs;
+    if (_lockTick) clearInterval(_lockTick);
+    const render = () => { const c = $('lockCountdown'); if (c) c.textContent = 'auto-locks in ' + fmtCountdown(_lockDeadline - Date.now()); };
+    render();
+    _lockTick = setInterval(render, 1000);
+}
+// Reset the countdown only while it's running (i.e. unlocked), matching main.js noteActivity.
+function bumpLockCountdown() { if (_lockTick) _lockDeadline = Date.now() + _lockMs; }
+
+function setLockUI(locked) {
+    const dot = $('lockDot'), lbl = $('lockStateLabel'), nowBtn = $('lockNowBtn');
+    if (locked) {
+        if (dot) dot.className = 'dot warn';
+        if (lbl) lbl.textContent = 'LOCKED';
+        if (nowBtn) nowBtn.style.display = 'none';
+        stopLockCountdown();
+    } else {
+        if (dot) dot.className = 'dot on';
+        if (lbl) lbl.textContent = 'UNLOCKED';
+        if (nowBtn) nowBtn.style.display = '';
+        startLockCountdown();
+    }
+}
+
+// Reset the countdown on the same activity the main process watches for auto-lock.
+window.addEventListener('mousemove', bumpLockCountdown, { passive: true });
+window.addEventListener('keydown',  bumpLockCountdown, { passive: true });
+
+$('lockNowBtn').addEventListener('click', async () => {
     await window.labs.lock.lockNow();
     $('lockOverlay').classList.add('is-open');
+    setLockUI(true);
 });
 
 window.labs.on.locked(() => {
     $('lockOverlay').classList.add('is-open');
+    setLockUI(true);
+});
+window.labs.on.unlocked((payload) => {
+    if (payload && typeof payload.lockMs === 'number') _lockMs = payload.lockMs;
+    setLockUI(false);
 });
 
 // ── Pane navigation ─────────────────────────────────────────────────────────
@@ -218,25 +275,113 @@ async function openWallet(address) {
 
 $('wRefresh').addEventListener('click', () => { if (state.activeAddress) openWallet(state.activeAddress); });
 
+// ── Modals (Electron's renderer has no window.prompt) ───────────────────────
+// promptModal: password/text input → Promise<string|null> (null = cancelled).
+function promptModal({ title = 'Confirm', message = '', type = 'password', placeholder = '', okText = 'OK' } = {}) {
+    return new Promise((resolve) => {
+        const overlay = $('pwModal'), input = $('pwModalInput');
+        $('pwModalTitle').textContent = title;
+        $('pwModalMsg').textContent   = message;
+        input.type = type === 'password' ? 'password' : 'text';
+        input.placeholder = placeholder || '';
+        input.value = '';
+        $('pwModalErr').textContent = '';
+        $('pwModalOk').textContent = okText;
+        overlay.classList.add('is-open');
+        setTimeout(() => input.focus(), 30);
+        const cleanup = () => {
+            overlay.classList.remove('is-open');
+            $('pwModalOk').removeEventListener('click', onOk);
+            $('pwModalCancel').removeEventListener('click', onCancel);
+            input.removeEventListener('keydown', onKey);
+        };
+        const onOk = () => { const v = input.value; cleanup(); resolve(v); };
+        const onCancel = () => { cleanup(); resolve(null); };
+        const onKey = (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+            else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+        };
+        $('pwModalOk').addEventListener('click', onOk);
+        $('pwModalCancel').addEventListener('click', onCancel);
+        input.addEventListener('keydown', onKey);
+    });
+}
+
+// infoModal: OK-only message → Promise<void> (replaces window.alert in flows we own).
+function infoModal({ title = 'Notice', message = '', okText = 'OK' } = {}) {
+    return new Promise((resolve) => {
+        const overlay = $('infoModal'), ok = $('infoModalOk');
+        $('infoModalTitle').textContent = title;
+        $('infoModalMsg').textContent   = message;
+        ok.textContent = okText;
+        overlay.classList.add('is-open');
+        setTimeout(() => ok.focus(), 30);
+        const cleanup = () => {
+            overlay.classList.remove('is-open');
+            ok.removeEventListener('click', onOk);
+            document.removeEventListener('keydown', onKey);
+        };
+        const onOk = () => { cleanup(); resolve(); };
+        const onKey = (e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); onOk(); } };
+        ok.addEventListener('click', onOk);
+        document.addEventListener('keydown', onKey);
+    });
+}
+
+// showSeedModal: displays a secret with copy + 60s auto-clear countdown. The
+// seed is wiped from the DOM on Done or on timeout.
+function showSeedModal(seed) {
+    const overlay = $('seedModal'), out = $('seedModalValue'), timerEl = $('seedModalTimer'), copyBtn = $('seedModalCopy');
+    out.textContent = seed;
+    copyBtn.textContent = 'Copy seed';
+    overlay.classList.add('is-open');
+    let remaining = 60, done = false, interval = null;
+    timerEl.textContent = String(remaining);
+    const close = () => {
+        if (done) return; done = true;
+        if (interval) { clearInterval(interval); interval = null; }
+        out.textContent = '';                       // wipe seed from the DOM
+        overlay.classList.remove('is-open');
+        $('seedModalDone').removeEventListener('click', close);
+        copyBtn.removeEventListener('click', onCopy);
+    };
+    const onCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(seed);
+            copyBtn.textContent = 'Copied';
+            setTimeout(() => { if (!done) copyBtn.textContent = 'Copy seed'; }, 1500);
+        } catch (_) { /* clipboard blocked — manual selection still works */ }
+    };
+    interval = setInterval(() => {
+        remaining -= 1;
+        timerEl.textContent = String(remaining);
+        if (remaining <= 0) close();
+    }, 1000);
+    $('seedModalDone').addEventListener('click', close);
+    copyBtn.addEventListener('click', onCopy);
+}
+
 $('wRevealBtn').addEventListener('click', async () => {
     if (!state.activeAddress) return;
-    const pw = window.prompt('Re-enter master password to reveal seed:');
+    const pw = await promptModal({ title: 'Reveal Seed', message: 'Re-enter master password to reveal seed:' });
     if (!pw) return;
     try {
         const seed = await window.labs.wallet.revealSecret(state.activeAddress, pw);
-        const ok = window.confirm('SHOW SEED?\n\nAnyone with this seed can spend your wallet.\nClick OK only if you are alone.');
-        if (ok) window.alert('Seed:\n\n' + seed);
-    } catch (e) { window.alert('Reveal failed: ' + (e.message || 'unknown')); }
+        showSeedModal(seed);
+    } catch (e) {
+        await infoModal({ title: 'Reveal Failed', message: e.message || 'unknown' });
+    }
 });
 
 $('wDeleteBtn').addEventListener('click', async () => {
     if (!state.activeAddress) return;
-    const conf = window.prompt('Type DELETE to remove this wallet from the device:');
+    const conf = await promptModal({ title: 'Delete Wallet', message: 'Type DELETE to remove this wallet from the device:', type: 'text', placeholder: 'DELETE', okText: 'Delete' });
     if (conf !== 'DELETE') return;
     await window.labs.wallet.deleteWallet(state.activeAddress, 'DELETE');
     state.activeAddress = null;
     await refreshWallets();
     showPane('welcome');
+    await infoModal({ title: 'Wallet Deleted', message: 'The wallet was removed from this device.' });
 });
 
 $('wSendBtn').addEventListener('click', () => {
@@ -448,7 +593,7 @@ async function setPasswordRecovery(enabled) {
     const status = $('setRecStatus');
     status.textContent = '';
     if (enabled) {
-        const pw = window.prompt('Enter your current master password to enable password recovery:');
+        const pw = await promptModal({ title: 'Enable Password Recovery', message: 'Enter your current master password to enable password recovery:' });
         if (!pw) { $('setRecToggle').checked = false; return; }
         const r = await window.labs.settings.setPasswordRecovery(true, pw);
         if (!r.ok) {
@@ -471,7 +616,7 @@ async function revealMasterPassword() {
     let r = await window.labs.settings.revealMasterPassword();
     if (!r.ok && r.reason === 'prompt_password') {
         // OS prompt isn't available on this platform — verify by master pw re-entry.
-        const pw = window.prompt('Re-enter your master password to reveal:');
+        const pw = await promptModal({ title: 'Reveal Master Password', message: 'Re-enter your master password to reveal:' });
         if (!pw) { status.textContent = ''; return; }
         r = await window.labs.settings.revealMasterPassword(pw);
     }
@@ -589,7 +734,8 @@ async function syncRestoreFromCloud(password) {
 
 $('setSave').addEventListener('click', async () => {
     const ms = Number($('setLock').value);
-    await window.labs.lock.setTimeout(ms);
+    const r = await window.labs.lock.setTimeout(ms);
+    if (r && r.ms) { _lockMs = r.ms; if (_lockTick) startLockCountdown(); }   // re-arm countdown with the new interval
     const url = $('setBridgeUrl').value.trim();
     const tok = $('setBridgeToken').value.trim();
     await window.labs.bridge.configureRemote(url || null, tok || null);
@@ -890,7 +1036,7 @@ async function maybeOfferCloudRestore() {
     if (!s.has_backup) return;
     const localCount = (await window.labs.wallet.list()).length;
     if (localCount > 0) return;
-    const pw = window.prompt('A wallet backup was found on your XRPSync account.\n\nEnter the master password used when it was created to restore your wallets:');
+    const pw = await promptModal({ title: 'Restore From Cloud', message: 'A wallet backup was found on your XRPSync account.\n\nEnter the master password used when it was created to restore your wallets:' });
     if (!pw) return;
     const r = await window.labs.sync.restoreFromCloud(pw);
     if (r.ok) window.alert('Restored ' + r.imported + ' wallet' + (r.imported === 1 ? '' : 's') + ' from cloud backup.');
@@ -919,4 +1065,10 @@ async function refreshAll() {
 }
 
 bootLockState();
+
+// Surface build identity in the footer so the running binary is identifiable.
+window.labs.appInfo().then((info) => {
+    const f = $('footMeta');
+    if (f && info && info.version) f.textContent = 'v' + info.version + ' · build ' + (info.build || '?');
+}).catch(() => {});
 setInterval(refreshStatus, 15_000);

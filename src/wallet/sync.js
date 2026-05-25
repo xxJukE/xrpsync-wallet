@@ -18,7 +18,7 @@ const BLOB_VERSION    = 1;
 const PAYLOAD_VERSION = 1;
 
 let argon2 = null;
-try { argon2 = require('argon2'); } catch (_) { /* surfaced when used */ }
+try { argon2 = require('@node-rs/argon2'); } catch (_) { /* surfaced when used */ }
 
 const ARGON2 = {
     memoryCost: 65536,
@@ -29,15 +29,19 @@ const ARGON2 = {
 
 async function deriveKey(password, salt) {
     if (!argon2) throw new Error('argon2_unavailable');
-    return argon2.hash(password, {
-        type: argon2.argon2id,
-        memoryCost: ARGON2.memoryCost,
-        timeCost:   ARGON2.timeCost,
+    // @node-rs/argon2.hash() returns a PHC string; the final segment is the raw
+    // hash. Byte-identical to the prior argon2@0.40.3 `raw: true` output for these
+    // params (same params as storage.js — verified by scripts/argon2-compat-test.js).
+    const algorithm = (argon2.Algorithm && argon2.Algorithm.Argon2id != null) ? argon2.Algorithm.Argon2id : 2;
+    const phc = await argon2.hash(password, {
+        algorithm,
+        memoryCost:  ARGON2.memoryCost,
+        timeCost:    ARGON2.timeCost,
         parallelism: ARGON2.parallelism,
-        hashLength:  ARGON2.hashLength,
+        outputLen:   ARGON2.hashLength,
         salt,
-        raw: true,
     });
+    return Buffer.from(String(phc).split('$').pop(), 'base64');
 }
 
 /**

@@ -16,7 +16,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "argon2": "^0.40.3",
+    "@node-rs/argon2": "^2.0.2",
     "electron-store": "^8.2.0",
     "keytar": "^7.9.0",
     "uuid": "^9.0.1",
@@ -37,14 +37,21 @@
       "preload.js",
       "src/**/*",
       "assets/**/*",
-      "package.json"
+      "package.json",
+      "node_modules/@node-rs/**"
+    ],
+    "asarUnpack": [
+      "node_modules/@node-rs/**",
+      "node_modules/keytar/**",
+      "**/*.node"
     ],
     "directories": {
       "output": "dist"
     },
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false
     },
     "mac": {
       "target": "dmg",

@@ -86,6 +86,9 @@ contextBridge.exposeInMainWorld('labs', {
         open: (address) => invoke('onramp:open', { address }),
     },
 
+    // ── Build identity (footer version + diagnostics) ──
+    appInfo: () => invoke('app:info'),
+
     // ── XRPSync account / subscription ──
     account: {
         status:       ()                          => invoke('account:status'),
@@ -110,6 +113,7 @@ contextBridge.exposeInMainWorld('labs', {
     // ── UI events from main → renderer ──
     on: {
         locked:      (handler) => ipcRenderer.on('ui:locked', handler),
+        unlocked:    (handler) => ipcRenderer.on('ui:unlocked', (_e, payload) => handler(payload)),
         autoSigned:  (handler) => ipcRenderer.on('ui:auto-signed', (_e, payload) => handler(payload)),
         nav:         (handler) => ipcRenderer.on('ui:nav', (_e, target) => handler(target)),
         syncUpdated: (handler) => ipcRenderer.on('ui:sync-updated', (_e, payload) => handler(payload)),

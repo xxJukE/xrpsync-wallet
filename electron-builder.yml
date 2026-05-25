@@ -11,9 +11,15 @@ files:
   - src/**/*
   - assets/**/*
   - package.json
+  - node_modules/@node-rs/**          # ensure argon2 main + win32 binary pkg are bundled
+asarUnpack:
+  - node_modules/@node-rs/**          # unpack so the native .node can be dlopen'd at runtime
+  - node_modules/keytar/**            # keytar native module
+  - "**/*.node"                        # safety net for any native binary
 win:
   target: nsis
   icon: assets/icon.ico
+  signAndEditExecutable: false
 mac:
   target: dmg
   icon: assets/icon.icns

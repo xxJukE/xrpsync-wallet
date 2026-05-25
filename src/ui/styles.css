@@ -50,6 +50,9 @@ a:hover { text-decoration: underline; }
 .lw-top .status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--term-muted); display: inline-block; margin-right: 4px; }
 .lw-top .status .dot.on { background: var(--term-fg); box-shadow: 0 0 5px var(--term-fg); animation: breathe 2.6s ease-in-out infinite; }
 .lw-top .status .dot.warn { background: var(--term-warn); box-shadow: 0 0 5px var(--term-warn); }
+.lw-top .lock-state { display: inline-flex; align-items: center; gap: 4px; }
+.lw-top .lock-state #lockNowBtn { color: var(--term-muted); }
+.lw-top .lock-state #lockNowBtn:hover { color: var(--term-fg); }
 
 .lw-side {
     grid-area: side;

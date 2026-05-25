@@ -23,6 +23,9 @@ const KEYTAR_SERVICE = 'labs-wallet';
 const KEYTAR_ACCOUNT = 'master-password';
 
 const LABS_API_BASE = process.env.LABS_API_BASE || 'https://xrpsync.com';
+// Bump on each release build so a running binary can be identified vs older
+// installs (logged at startup + surfaced in the wallet footer / app:info IPC).
+const BUILD_STAMP = '2026-05-25';
 let pendingSyncTimer = null;
 
 let mainWindow = null;
@@ -30,6 +33,24 @@ let approvalWindow = null;
 let tray = null;
 let lockTimer = null;
 let isLocked = true;
+
+// ── Single-instance lock ────────────────────────────────────────────────────
+// Prevents multiple wallet instances from running at once. Without this, extra
+// launches spawn rival processes that fight over the bridge port (17760) and
+// silently break it with EADDRINUSE. A second launch focuses the existing
+// window instead. Must run before any app.on() handlers or window creation.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+    app.quit();
+    return;
+}
+app.on('second-instance', () => {
+    if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+    }
+});
 
 // User-tunable lock timeout (ms). Default 5 minutes. Persisted via WalletStore.
 let lockMs = 5 * 60 * 1000;
@@ -110,7 +131,19 @@ function lockApp() {
     isLocked = true;
     WalletStore?.lock();
     if (mainWindow) mainWindow.webContents.send('ui:locked');
+    try { mainWindow?.flashFrame(true); } catch (_) {}        // flash taskbar so a backgrounded lock is noticed
+    try { BridgeServer?.broadcastWalletInfo(); } catch (_) {} // tell connected sites the wallet just locked
     if (lockTimer) { clearTimeout(lockTimer); lockTimer = null; }
+}
+// Single entry point for "the wallet just became unlocked": stop the flash,
+// restart the auto-lock timer, notify the renderer (ui:unlocked) and any
+// connected site. Routes every unlock path through one place.
+function markUnlocked() {
+    isLocked = false;
+    resetLockTimer();
+    try { mainWindow?.flashFrame(false); } catch (_) {}
+    try { mainWindow?.webContents.send('ui:unlocked', { lockMs }); } catch (_) {}
+    try { BridgeServer?.broadcastWalletInfo(); } catch (_) {}
 }
 function noteActivity() { if (!isLocked) resetLockTimer(); }
 
@@ -142,6 +175,15 @@ app.whenReady().then(() => {
     AccountSession.init();
     lockMs = (WalletStore.getPref('lock_ms') || 5 * 60 * 1000);
 
+    // Build-identity marker — makes "which build am I running?" unambiguous.
+    console.log('[main] XRPSync Wallet startup', {
+        version:   app.getVersion(),
+        build:     BUILD_STAMP,
+        startedAt: new Date().toISOString(),
+        electron:  process.versions.electron,
+        platform:  process.platform,
+    });
+
     createMainWindow();
     buildMenu();
     registerIpc();
@@ -160,6 +202,7 @@ function registerIpc() {
         locked:    isLocked,
         hasMaster: WalletStore.hasMasterPassword(),
         kdf:       WalletStore.masterKdf(),
+        lockMs,
     }));
 
     // First-launch setup. Generates a strong random master password, sets it as
@@ -173,9 +216,7 @@ function registerIpc() {
         }
         const password = WalletStore.generateMasterPassword(24);
         await WalletStore.setMasterPassword(password);
-        isLocked = false;
-        resetLockTimer();
-        BridgeServer?.broadcastWalletInfo();
+        markUnlocked();
         return { ok: true, password };
     });
 
@@ -184,19 +225,25 @@ function registerIpc() {
     // routes through lock:first-launch-setup instead.
     ipcMain.handle('lock:set-master', async (_e, password) => {
         await WalletStore.setMasterPassword(password);
-        isLocked = false;
-        resetLockTimer();
-        BridgeServer?.broadcastWalletInfo();
+        markUnlocked();
         return { ok: true };
     });
     ipcMain.handle('lock:unlock', async (_e, password) => {
-        const ok = await WalletStore.unlock(password);
-        if (ok) { isLocked = false; resetLockTimer(); BridgeServer?.broadcastWalletInfo(); }
-        return { ok };
+        const result = await WalletStore.unlock(password);
+        if (result.ok) markUnlocked();
+        return result;  // { ok, error? } — error='engine_unavailable' drives a distinct UI message
     });
     ipcMain.handle('lock:lock', () => { lockApp(); return { ok: true }; });
     ipcMain.handle('lock:set-timeout', (_e, ms) => { lockMs = Math.max(30_000, Number(ms) || 300_000); WalletStore.setPref('lock_ms', lockMs); resetLockTimer(); return { ok: true, ms: lockMs }; });
     ipcMain.on('activity', noteActivity);
+
+    // Build identity for the renderer (footer version + diagnostics).
+    ipcMain.handle('app:info', () => ({
+        version:  app.getVersion(),
+        build:    BUILD_STAMP,
+        electron: process.versions.electron,
+        platform: process.platform,
+    }));
 
     // ── Settings: password recovery (OS keychain copy of master pw) ──
     // Off by default. When enabled the user can reveal the master password
@@ -222,12 +269,12 @@ function registerIpc() {
             if (!live) return { ok: false, error: 'password_required_to_enable' };
             // Re-verify by attempting an unlock with the supplied password — this
             // catches typos so we don't stash a wrong password in the keychain.
-            const ok = await WalletStore.unlock(live);
-            if (!ok) return { ok: false, error: 'wrong_password' };
+            const res = await WalletStore.unlock(live);
+            if (!res.ok) return { ok: false, error: 'wrong_password' };
             try { await keytar.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT, live); }
             catch (e) { return { ok: false, error: 'keychain_write_failed: ' + (e.message || e) }; }
             WalletStore.setPref('password_recovery_enabled', true);
-            isLocked = false; resetLockTimer();
+            markUnlocked();
             return { ok: true };
         } else {
             try { await keytar.deletePassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT); } catch (_) {}
@@ -258,7 +305,7 @@ function registerIpc() {
             return { ok: false, reason: 'prompt_password' };
         }
         const verified = await WalletStore.unlock(reentered);
-        if (!verified) return { ok: false, reason: 'wrong_password' };
+        if (!verified.ok) return { ok: false, reason: 'wrong_password' };
         return { ok: true, password: stored };
     });
 
@@ -317,12 +364,12 @@ function registerIpc() {
         // If the local store has no master yet, set the one we just verified.
         if (!WalletStore.hasMasterPassword()) {
             await WalletStore.setMasterPassword(password);
-            isLocked = false; resetLockTimer();
+            markUnlocked();
         } else if (isLocked) {
             // Unlock with the supplied password — this is also our verification.
-            const ok = await WalletStore.unlock(password);
-            if (!ok) return { ok: false, error: 'master_password_does_not_match_local_store' };
-            isLocked = false; resetLockTimer();
+            const res = await WalletStore.unlock(password);
+            if (!res.ok) return { ok: false, error: 'master_password_does_not_match_local_store' };
+            markUnlocked();
         }
 
         const xrpl = require('xrpl');
