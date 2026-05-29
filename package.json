@@ -19,6 +19,7 @@
     "@node-rs/argon2": "^2.0.2",
     "electron-store": "^8.2.0",
     "keytar": "^7.9.0",
+    "qrcode": "^1.5.4",
     "uuid": "^9.0.1",
     "ws": "^8.18.0",
     "xrpl": "^4.0.0"

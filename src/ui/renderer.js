@@ -205,6 +205,7 @@ async function refreshWallets() {
         empty.style.cssText = 'padding:8px 14px;font-size:10px';
         empty.textContent = 'no wallets yet';
         el.appendChild(empty);
+        updateTransferAvailability();
         return;
     }
     state.wallets.forEach(w => {
@@ -214,66 +215,200 @@ async function refreshWallets() {
         item.addEventListener('click', () => { state.activeAddress = w.address; openWallet(w.address); refreshWallets(); });
         el.appendChild(item);
     });
+    updateTransferAvailability();
 }
 
 async function openWallet(address) {
     showPane('wallet');
     const w = state.wallets.find(x => x.address === address);
     $('wDetailLabel').textContent = (w?.label || 'Wallet');
-    $('wDetailAddr').textContent = address;
+    $('wDetailAddr').textContent = address;   // exact case — addresses are case-sensitive, never uppercased
+    // If the receive-QR modal is open for a different address, close it. The
+    // QR is address-specific and stale-ness here is confusing.
+    closeQrModalIfOpen();
+    state.unfunded = false;
     $('wXrp').textContent = '…';
     $('wRlusd').textContent = '…';
-    $('wTxBody').innerHTML = '<tr><td colspan="6" class="mut" style="text-align:center;padding:18px">loading…</td></tr>';
-    $('wTrBody').innerHTML = '<tr><td colspan="4" class="mut" style="text-align:center;padding:18px">loading…</td></tr>';
+    $('wTxBody').innerHTML = '<tr><td colspan="6" class="empty-state">loading…</td></tr>';
+    $('wTrBody').innerHTML = '<tr><td colspan="5" class="empty-state">Loading…</td></tr>';
 
+    // Balances — balances.fetch returns { unfunded:true } for an un-activated account.
     try {
         const bal = await window.labs.xrpl.balances(address);
-        $('wXrp').textContent = fmtNum(bal.xrp, 2);
-        const rlusd = (bal.tokens || []).find(t => t.currency === 'RLUSD');
-        $('wRlusd').textContent = rlusd ? fmtNum(rlusd.value, 4) : '—';
+        if (bal.unfunded) {
+            state.unfunded = true;
+            $('wXrp').textContent = '—';
+            $('wRlusd').textContent = '—';
+        } else {
+            $('wXrp').textContent = fmtNum(bal.xrp, 2);
+            const rlusd = (bal.tokens || []).find(t => t.currency === 'RLUSD');
+            $('wRlusd').textContent = rlusd ? fmtNum(rlusd.value, 4) : '—';
+        }
     } catch (e) {
         $('wXrp').textContent = '!';
         $('wRlusd').textContent = '!';
     }
 
-    try {
-        const h = await window.labs.xrpl.history(address, 30);
-        const tb = $('wTxBody');
-        if (!h.txs.length) { tb.innerHTML = '<tr><td colspan="6" class="mut" style="text-align:center;padding:18px">no recent activity</td></tr>'; }
-        else {
-            tb.innerHTML = h.txs.map(t => `<tr>
-                <td>${t.hash ? shortAddr(t.hash) : '—'}</td>
-                <td>${t.type || '—'}</td>
-                <td>${shortAddr(t.destination || t.account)}</td>
-                <td class="num">${typeof t.amount === 'string' ? fmtNum(Number(t.amount)/1_000_000, 2) + ' XRP' : '—'}</td>
-                <td class="mut">${t.date ? new Date(t.date).toLocaleString() : '—'}</td>
-                <td class="${t.result === 'tesSUCCESS' ? 'fg-profit' : 'fg-danger'}">${t.result || '—'}</td>
-            </tr>`).join('');
+    // Recent activity — an un-activated account has no transaction history.
+    if (state.unfunded) {
+        $('wTxBody').innerHTML = '<tr><td colspan="6" class="empty-state">No transactions yet — account not activated.</td></tr>';
+        $('wTxMeta').textContent = '—';
+    } else {
+        try {
+            const h = await window.labs.xrpl.history(address, 30);
+            const tb = $('wTxBody');
+            if (!h.txs.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state">No recent activity</td></tr>'; }
+            else {
+                tb.innerHTML = h.txs.map(t => `<tr>
+                    <td>${t.hash ? shortAddr(t.hash) : '—'}</td>
+                    <td>${t.type || '—'}</td>
+                    <td>${shortAddr(t.destination || t.account)}</td>
+                    <td class="num">${typeof t.amount === 'string' ? fmtNum(Number(t.amount)/1_000_000, 2) + ' XRP' : '—'}</td>
+                    <td class="mut">${t.date ? new Date(t.date).toLocaleString() : '—'}</td>
+                    <td class="${t.result === 'tesSUCCESS' ? 'fg-profit' : 'fg-danger'}">${t.result || '—'}</td>
+                </tr>`).join('');
+            }
+            $('wTxMeta').textContent = h.txs.length + ' loaded';
+        } catch (_) {
+            $('wTxBody').innerHTML = '<tr><td colspan="6" class="fg-danger empty-state">failed to load</td></tr>';
         }
-        $('wTxMeta').textContent = h.txs.length + ' loaded';
-    } catch (_) {
-        $('wTxBody').innerHTML = '<tr><td colspan="6" class="fg-danger" style="text-align:center;padding:18px">failed to load</td></tr>';
     }
 
+    await renderTrustlines(address);
+}
+
+// ── Trustlines panel ────────────────────────────────────────────────────────
+// XRPL currency codes >3 chars come back from account_lines as 40-char hex.
+// Decode to ASCII for display; the RAW code is what we pass back to TrustSet.
+function humanCurrency(c) {
+    if (!c) return '';
+    if (c.length === 3) return c;
+    if (/^[0-9A-Fa-f]{40}$/.test(c)) {
+        let s = '';
+        for (let i = 0; i < c.length; i += 2) { const code = parseInt(c.substr(i, 2), 16); if (code) s += String.fromCharCode(code); }
+        s = s.replace(/[^\x20-\x7E]/g, '');
+        return s || c;
+    }
+    return c;
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+
+async function renderTrustlines(address) {
+    const tb = $('wTrBody');
+    if (state.unfunded) {
+        tb.innerHTML = `<tr><td colspan="5" class="empty-state">
+            <div class="lead">Account not yet activated</div>
+            Send XRP to this address to activate it (the network base reserve), then add trustlines to hold tokens.
+            <div class="cta"><button class="btn sm" id="wTrFundCta">Copy address to fund</button></div>
+        </td></tr>`;
+        $('wTrMeta').textContent = '0 lines';
+        $('wTrFundCta')?.addEventListener('click', copyActiveAddress);
+        return;
+    }
+    tb.innerHTML = '<tr><td colspan="5" class="empty-state">Loading…</td></tr>';
     try {
         const lines = await window.labs.xrpl.trustlines(address);
-        const tb = $('wTrBody');
-        if (!lines.length) { tb.innerHTML = '<tr><td colspan="4" class="mut" style="text-align:center;padding:18px">no trustlines</td></tr>'; }
-        else {
-            tb.innerHTML = lines.map(l => `<tr>
-                <td>${l.currency}</td>
+        if (!lines.length) {
+            tb.innerHTML = `<tr><td colspan="5" class="empty-state">
+                <div class="lead">No trustlines yet</div>Add one to hold tokens like RLUSD.</td></tr>`;
+        } else {
+            tb.innerHTML = lines.map((l, i) => `<tr>
+                <td>${esc(humanCurrency(l.currency))}</td>
                 <td>${shortAddr(l.issuer)}</td>
-                <td class="num">${l.balance}</td>
-                <td class="num">${l.limit}</td>
+                <td class="num">${esc(l.balance)}</td>
+                <td class="num">${esc(l.limit)}</td>
+                <td class="num"><button class="btn ghost sm" data-tl-remove="${i}">Remove</button></td>
             </tr>`).join('');
+            tb.querySelectorAll('[data-tl-remove]').forEach((btn) =>
+                btn.addEventListener('click', () => removeTrustline(lines[Number(btn.dataset.tlRemove)])));
         }
         $('wTrMeta').textContent = lines.length + ' lines';
     } catch (_) {
-        $('wTrBody').innerHTML = '<tr><td colspan="4" class="fg-danger" style="text-align:center;padding:18px">failed to load</td></tr>';
+        tb.innerHTML = '<tr><td colspan="5" class="fg-danger empty-state">failed to load</td></tr>';
     }
 }
 
 $('wRefresh').addEventListener('click', () => { if (state.activeAddress) openWallet(state.activeAddress); });
+
+// ── Click-to-copy address (preserves exact case) ────────────────────────────
+async function copyActiveAddress() {
+    if (!state.activeAddress) return;
+    try { await navigator.clipboard.writeText(state.activeAddress); } catch (_) { /* clipboard blocked — selection still works */ }
+    const chip = $('wCopyAddr');
+    if (chip) { chip.classList.add('copied'); setTimeout(() => chip.classList.remove('copied'), 1500); }
+}
+$('wCopyAddr')?.addEventListener('click', copyActiveAddress);
+$('wCopyAddr')?.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copyActiveAddress(); } });
+
+// ── Add / remove trustline ──────────────────────────────────────────────────
+const RLUSD_ISSUER = 'rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De';   // RLUSD DEX issuer (config('xrpl.rlusd_dex_issuer'))
+
+function openTrustlineModal() {
+    if (!state.activeAddress) return;
+    $('tlCur').value = ''; $('tlIssuer').value = ''; $('tlLimit').value = ''; $('tlPw').value = '';
+    $('tlErr').textContent = '';
+    $('tlSubmit').disabled = false; $('tlSubmit').textContent = 'Add Trustline';
+    $('trustlineModal').classList.add('is-open');
+    setTimeout(() => $('tlCur').focus(), 30);
+}
+function closeTrustlineModal() { $('trustlineModal').classList.remove('is-open'); }
+
+$('wAddTrustlineBtn')?.addEventListener('click', openTrustlineModal);
+$('tlCancel')?.addEventListener('click', closeTrustlineModal);
+$('tlPresetRlusd')?.addEventListener('click', () => {
+    $('tlCur').value = 'RLUSD';            // main encodes RLUSD → 40-hex for the ledger
+    $('tlIssuer').value = RLUSD_ISSUER;
+    $('tlLimit').value = '1000';
+});
+$('tlPw')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitTrustline(); });
+$('tlSubmit')?.addEventListener('click', submitTrustline);
+
+async function submitTrustline() {
+    const currency = $('tlCur').value.trim();
+    const issuer = $('tlIssuer').value.trim();
+    const limit = $('tlLimit').value.trim();
+    const password = $('tlPw').value;
+    const err = $('tlErr');
+    err.textContent = '';
+    if (!currency) { err.textContent = 'Enter a currency code (e.g. RLUSD).'; return; }
+    if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(issuer)) { err.textContent = 'Enter a valid issuer address (rXXX…).'; return; }
+    if (!/^\d+(\.\d+)?$/.test(limit) || Number(limit) < 0) { err.textContent = 'Enter a limit — a number ≥ 0.'; return; }
+    if (!password) { err.textContent = 'Master password is required to sign.'; return; }
+
+    $('tlSubmit').disabled = true; $('tlSubmit').textContent = 'Submitting…';
+    let r;
+    try { r = await window.labs.xrpl.setTrustline({ currency, issuer, limit, password }); }
+    catch (e) { r = { ok: false, error: e?.message || 'failed' }; }
+
+    if (r && r.ok) {
+        closeTrustlineModal();
+        await infoModal({ title: 'Trustline added', message: 'TrustSet confirmed on the XRPL.\n\ntx: ' + (r.tx_hash || '—') });
+        if (state.activeAddress) openWallet(state.activeAddress);
+    } else {
+        $('tlSubmit').disabled = false; $('tlSubmit').textContent = 'Add Trustline';
+        err.textContent = (r && r.error === 'wrong_password') ? 'Wrong master password.' : ('Failed: ' + ((r && r.error) || 'unknown'));
+    }
+}
+
+async function removeTrustline(line) {
+    if (!line) return;
+    const cur = humanCurrency(line.currency);
+    const pw = await promptModal({
+        title: 'Remove trustline',
+        message: 'Re-enter your master password to remove the ' + cur + ' trustline.\n\nThis sets its limit to 0 (the line clears once its balance is also 0).',
+        okText: 'Remove',
+    });
+    if (!pw) return;
+    let r;
+    try { r = await window.labs.xrpl.setTrustline({ currency: line.currency, issuer: line.issuer, limit: '0', password: pw }); }
+    catch (e) { r = { ok: false, error: e?.message || 'failed' }; }
+    if (r && r.ok) {
+        await infoModal({ title: 'Trustline removed', message: 'TrustSet confirmed.\n\ntx: ' + (r.tx_hash || '—') });
+        if (state.activeAddress) openWallet(state.activeAddress);
+    } else {
+        await infoModal({ title: 'Remove failed', message: (r && r.error === 'wrong_password') ? 'Wrong master password.' : ('Failed: ' + ((r && r.error) || 'unknown')) });
+    }
+}
 
 // ── Modals (Electron's renderer has no window.prompt) ───────────────────────
 // promptModal: password/text input → Promise<string|null> (null = cancelled).
@@ -422,6 +557,201 @@ $('sndSubmit').addEventListener('click', async () => {
         setTimeout(() => openWallet(state.activeAddress), 1500);
     } catch (e) {
         $('sndResult').innerHTML = `<span class="fg-danger">failed: ${e.message || e}</span>`;
+    }
+});
+
+// ── Transfer: move XRP between this device's own wallets ────────────────────
+// Reuses the standard Payment + xrpl:sign-and-submit IPC. Form → confirmation
+// → sign-and-submit. The single-wallet guard is applied inside refreshWallets()
+// below (see updateTransferAvailability()).
+const XRPL_BASE_RESERVE_XRP = 10;
+
+// utf8 → uppercase hex, used to build the XRPL Memo.MemoData field. Buffer is
+// not available in the renderer's main world (contextIsolation: true), so we
+// roll our own with TextEncoder.
+function utf8ToHexUpper(s) {
+    const bytes = new TextEncoder().encode(s);
+    let out = '';
+    for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, '0');
+    return out.toUpperCase();
+}
+
+const XFER_RESULT_HINTS = {
+    tecNO_DST_INSUF_XRP: 'destination is unactivated and the amount is below the 10 XRP activation reserve',
+    tecUNFUNDED_PAYMENT: 'source wallet does not have enough spendable XRP after reserve + fee',
+    tecDST_TAG_NEEDED:   'destination requires a tag — this transfer UI does not support tags (use Send)',
+    tecPATH_DRY:         'no liquidity path available for this payment',
+    temBAD_AMOUNT:       'amount is malformed',
+    temREDUNDANT:        'source and destination cannot be the same',
+};
+
+function updateTransferAvailability() {
+    const btn = $('wTransferBtn');
+    if (!btn) return;
+    if (state.wallets.length < 2) {
+        btn.disabled = true;
+        btn.title = 'Add another wallet to enable transfers';
+    } else {
+        btn.disabled = false;
+        btn.title = 'Move XRP between your own wallets';
+    }
+}
+
+function transferOptionsHtml(excludeAddress) {
+    return state.wallets
+        .filter(w => w.address !== excludeAddress)
+        .map(w => `<option value="${w.address}">${(w.label || 'Wallet').replace(/</g, '&lt;')} — ${shortAddr(w.address)}</option>`)
+        .join('');
+}
+
+function transferWalletLabel(address) {
+    const w = state.wallets.find(x => x.address === address);
+    return (w?.label || 'Wallet') + ' (' + shortAddr(address) + ')';
+}
+
+async function updateTransferAvailable() {
+    const from = $('xferFrom').value;
+    if (!from) { $('xferAvail').textContent = 'Available: —'; return; }
+    $('xferAvail').textContent = 'Available: …';
+    try {
+        const bal = await window.labs.xrpl.balances(from);
+        if (bal.unfunded) {
+            $('xferAvail').innerHTML = '<span class="fg-danger">source wallet is unactivated — cannot send</span>';
+            return;
+        }
+        const spendable = Math.max(0, Number(bal.xrp) - XRPL_BASE_RESERVE_XRP);
+        $('xferAvail').textContent = 'Available: ' + fmtNum(spendable, 6) + ' XRP (' + fmtNum(bal.xrp, 6) + ' − 10 reserve)';
+    } catch (e) {
+        $('xferAvail').innerHTML = '<span class="fg-danger">balance fetch failed</span>';
+    }
+}
+
+function openTransferModal() {
+    if (state.wallets.length < 2) return;
+    // Reset form
+    const from = state.activeAddress && state.wallets.some(w => w.address === state.activeAddress)
+        ? state.activeAddress
+        : state.wallets[0].address;
+    $('xferFrom').innerHTML = state.wallets
+        .map(w => `<option value="${w.address}">${(w.label || 'Wallet').replace(/</g, '&lt;')} — ${shortAddr(w.address)}</option>`)
+        .join('');
+    $('xferFrom').value = from;
+    $('xferTo').innerHTML = transferOptionsHtml(from);
+    $('xferAmt').value = '';
+    $('xferMemo').value = '';
+    $('xferPw').value = '';
+    $('xferFormErr').textContent = '';
+    $('xferConfirmErr').textContent = '';
+    $('xferConfirmStatus').textContent = '';
+    $('xferStepConfirm').classList.add('hidden');
+    $('xferStepForm').classList.remove('hidden');
+    $('transferModal').classList.add('is-open');
+    updateTransferAvailable();
+}
+
+function closeTransferModal() {
+    $('transferModal').classList.remove('is-open');
+    $('xferPw').value = '';
+}
+
+$('wTransferBtn')?.addEventListener('click', openTransferModal);
+$('xferCancel')?.addEventListener('click', closeTransferModal);
+$('xferBack')?.addEventListener('click', () => {
+    $('xferStepConfirm').classList.add('hidden');
+    $('xferStepForm').classList.remove('hidden');
+});
+
+$('xferFrom')?.addEventListener('change', () => {
+    const from = $('xferFrom').value;
+    $('xferTo').innerHTML = transferOptionsHtml(from);
+    updateTransferAvailable();
+});
+
+$('xferContinue')?.addEventListener('click', async () => {
+    const from = $('xferFrom').value;
+    const to = $('xferTo').value;
+    const amt = Number($('xferAmt').value);
+    const memo = $('xferMemo').value.trim();
+    const pw = $('xferPw').value;
+    $('xferFormErr').textContent = '';
+    if (!from || !to)        { $('xferFormErr').textContent = 'pick a source and destination wallet'; return; }
+    if (from === to)         { $('xferFormErr').textContent = 'source and destination must differ'; return; }
+    if (!amt || amt <= 0)    { $('xferFormErr').textContent = 'enter an amount greater than zero'; return; }
+    if (!Number.isFinite(amt)) { $('xferFormErr').textContent = 'amount is not a number'; return; }
+    if (!pw)                 { $('xferFormErr').textContent = 'enter your master password to sign'; return; }
+    if (memo.length > 120)   { $('xferFormErr').textContent = 'memo is too long (max 120 chars)'; return; }
+
+    // Warn if destination is unactivated AND amount under activation reserve.
+    try {
+        const destBal = await window.labs.xrpl.balances(to);
+        if (destBal.unfunded && amt < XRPL_BASE_RESERVE_XRP) {
+            $('xferFormErr').innerHTML = `destination is unactivated — first payment must be ≥ ${XRPL_BASE_RESERVE_XRP} XRP to create the account`;
+            return;
+        }
+    } catch (_) { /* fall through — submit-side error will surface */ }
+
+    $('xferConfirmMsg').textContent =
+        `Send ${fmtNum(amt, 6)} XRP from ${transferWalletLabel(from)} to ${transferWalletLabel(to)}?`;
+    $('xferConfirmAddr').textContent = to;
+    $('xferConfirmErr').textContent = '';
+    $('xferConfirmStatus').textContent = '';
+    $('xferStepForm').classList.add('hidden');
+    $('xferStepConfirm').classList.remove('hidden');
+});
+
+$('xferSign')?.addEventListener('click', async () => {
+    const from = $('xferFrom').value;
+    const to = $('xferTo').value;
+    const amt = Number($('xferAmt').value);
+    const memo = $('xferMemo').value.trim();
+    const pw = $('xferPw').value;
+    if (!from || !to || !amt || !pw) {
+        // Should not happen — form-stage guard already enforced this.
+        $('xferConfirmErr').textContent = 'missing required fields — go back and retry';
+        return;
+    }
+    $('xferSign').disabled = true;
+    $('xferBack').disabled = true;
+    $('xferConfirmErr').textContent = '';
+    $('xferConfirmStatus').textContent = 'signing…';
+    try {
+        const tx = {
+            TransactionType: 'Payment',
+            Account: from,
+            Destination: to,
+            Amount: String(Math.round(amt * 1_000_000)),
+        };
+        if (memo) {
+            tx.Memos = [{ Memo: { MemoData: utf8ToHexUpper(memo) } }];
+        }
+        const r = await window.labs.xrpl.signAndSubmit(from, tx, pw);
+        const engine = r?.result?.engine_result || '';
+        const ok = engine === 'tesSUCCESS' || engine === 'terQUEUED';
+        if (ok) {
+            $('xferConfirmStatus').innerHTML = `<span class="fg-profit">submitted</span> · ${engine} · hash: ${r.hash}`;
+            // Repaint balances for the currently-viewed wallet (covers the
+            // common case where From == active). Both sides will reconcile
+            // once the ledger validates and the user refreshes.
+            if (state.activeAddress) openWallet(state.activeAddress);
+            setTimeout(() => {
+                closeTransferModal();
+                infoModal({
+                    title: 'Transfer submitted',
+                    message: `Sent ${fmtNum(amt, 6)} XRP to ${transferWalletLabel(to)}.\n\nResult: ${engine}\nHash: ${r.hash}`,
+                });
+            }, 800);
+        } else {
+            const hint = XFER_RESULT_HINTS[engine];
+            $('xferConfirmStatus').textContent = '';
+            $('xferConfirmErr').innerHTML = `<span class="fg-danger">failed: ${engine || 'unknown'}</span>${hint ? ' — ' + hint : ''}`;
+            $('xferSign').disabled = false;
+            $('xferBack').disabled = false;
+        }
+    } catch (e) {
+        $('xferConfirmStatus').textContent = '';
+        $('xferConfirmErr').innerHTML = `<span class="fg-danger">failed: ${(e && e.message) || e}</span>`;
+        $('xferSign').disabled = false;
+        $('xferBack').disabled = false;
     }
 });
 
@@ -1072,3 +1402,73 @@ window.labs.appInfo().then((info) => {
     if (f && info && info.version) f.textContent = 'v' + info.version + ' · build ' + (info.build || '?');
 }).catch(() => {});
 setInterval(refreshStatus, 15_000);
+
+// ── Receive QR ──────────────────────────────────────────────────────────────
+// QR is generated in main (qrcode npm package) and returned as a PNG data URL.
+// We paint that onto the existing #qrCanvas so the brief's canvas-based UX is
+// preserved without bundling a UMD QR lib for the renderer.
+function closeQrModalIfOpen() {
+    const overlay = $('qrModal');
+    if (overlay && overlay.classList.contains('is-open')) overlay.classList.remove('is-open');
+}
+
+function clearQrCanvas() {
+    const canvas = $('qrCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+async function openQrModal() {
+    const address = state.activeAddress;
+    if (!address) return;
+    $('qrAddr').textContent = address;       // exact case — never uppercase
+    $('qrErr').textContent = '';
+    clearQrCanvas();
+    $('qrModal').classList.add('is-open');
+    try {
+        const dataUrl = await window.labs.xrpl.qr(address);
+        // The active wallet may have changed while the IPC was in flight.
+        if (state.activeAddress !== address) return;
+        await new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = $('qrCanvas');
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve();
+            };
+            img.onerror = () => reject(new Error('image_decode_failed'));
+            img.src = dataUrl;
+        });
+    } catch (e) {
+        $('qrErr').textContent = 'QR generation failed: ' + ((e && e.message) || e) + ' — address shown below is still valid';
+    }
+}
+
+$('wQrBtn')?.addEventListener('click', openQrModal);
+$('qrCloseBtn')?.addEventListener('click', closeQrModalIfOpen);
+
+$('qrCopyBtn')?.addEventListener('click', async () => {
+    const address = $('qrAddr').textContent;
+    if (!address || address === '—') return;
+    const btn = $('qrCopyBtn');
+    const original = btn.textContent;
+    try {
+        await navigator.clipboard.writeText(address);
+        btn.textContent = 'Copied!';
+    } catch (_) {
+        btn.textContent = 'Copy failed';
+    }
+    setTimeout(() => { btn.textContent = original; }, 1200);
+});
+
+// Escape closes the modal — mirrors the trustline / transfer modals' UX.
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if ($('qrModal')?.classList.contains('is-open')) {
+        e.preventDefault();
+        closeQrModalIfOpen();
+    }
+});

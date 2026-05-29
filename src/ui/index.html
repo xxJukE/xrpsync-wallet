@@ -52,7 +52,7 @@
 <!-- App shell -->
 <div class="lw-app">
     <div class="lw-top">
-        <span class="brand">⚡ XRPSYNC WALLET</span>
+        <span class="brand">XRPSync Wallet</span>
         <span class="status">
             <span><span id="netDot" class="dot"></span><span id="netLabel">connecting…</span></span>
             <span><span id="bridgeDot" class="dot"></span><span id="bridgeLabel">bridge: idle</span></span>
@@ -111,41 +111,70 @@
         </div>
 
         <div id="paneWallet" class="pane hidden">
-            <div class="card">
-                <div class="card-h">
-                    <span class="t" id="wDetailLabel">Wallet</span>
-                    <span class="m"><span id="wDetailAddr" class="mut">—</span> · <span id="wDetailNet" class="pill">mainnet</span></span>
+            <div class="wallet-head">
+                <div class="title">
+                    <h1 id="wDetailLabel">Wallet</h1>
+                    <span id="wDetailNet" class="pill">mainnet</span>
                 </div>
-                <div class="card-b">
-                    <div class="row" style="gap:24px;flex-wrap:wrap">
-                        <div><div class="mut" style="font-size:9px;letter-spacing:0.10em">XRP BALANCE</div><div id="wXrp" class="tabular" style="font-size:18px;color:var(--term-fg)">—</div></div>
-                        <div><div class="mut" style="font-size:9px;letter-spacing:0.10em">RLUSD</div><div id="wRlusd" class="tabular" style="font-size:18px;color:var(--term-fg-2)">—</div></div>
-                        <div class="spacer"></div>
-                        <button class="btn ghost" id="wRefresh">↻ Refresh</button>
-                        <button class="btn" id="wSendBtn">Send</button>
-                        <button class="btn buy-xrp" id="wFundBtn" title="Buy XRP with credit card on XRPSync">💳 Fund Wallet</button>
-                        <button class="btn warn" id="wRevealBtn">Reveal seed</button>
-                        <button class="btn danger" id="wDeleteBtn">Delete</button>
-                    </div>
+                <div class="copy-addr" id="wCopyAddr" title="Copy address" role="button" tabindex="0">
+                    <span class="addr" id="wDetailAddr">—</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    <span class="copy-tip" id="wCopyTip">Copied!</span>
+                </div>
+                <button id="wQrBtn" title="Show receive QR" type="button"
+                        style="display:inline-flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--term-line,#1f2731);border-radius:4px;color:var(--term-fg-2,#9aa3ad);width:28px;height:28px;margin-left:6px;cursor:pointer;padding:0">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <rect x="3" y="3" width="7" height="7" rx="1"/>
+                        <rect x="14" y="3" width="7" height="7" rx="1"/>
+                        <rect x="3" y="14" width="7" height="7" rx="1"/>
+                        <path d="M14 14h3v3h-3zM20 14h1M14 20h1M17 17h4v4"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="bal-grid">
+                <div class="bal-card">
+                    <div class="row"><div style="display:flex;align-items:center;"><span class="sym xrp">X</span><span class="ticker">XRP</span><span class="sub">XRP Ledger</span></div></div>
+                    <div class="amount tabular" id="wXrp">—</div>
+                    <div class="usd">spendable balance</div>
+                </div>
+                <div class="bal-card">
+                    <div class="row"><div style="display:flex;align-items:center;"><span class="sym rlusd">R</span><span class="ticker">RLUSD</span><span class="sub">Ripple USD</span></div></div>
+                    <div class="amount tabular" id="wRlusd">—</div>
+                    <div class="usd">issued stablecoin</div>
                 </div>
             </div>
 
+            <div class="actions">
+                <button class="btn primary" id="wSendBtn">Send</button>
+                <button class="btn" id="wTransferBtn" title="Move XRP between your own wallets">Transfer</button>
+                <button class="btn" id="wRefresh">↻ Refresh</button>
+                <button class="btn buy-xrp" id="wFundBtn" title="Buy XRP with credit card on XRPSync">Fund wallet</button>
+                <button class="btn warn" id="wRevealBtn">Reveal seed</button>
+                <button class="btn danger" id="wDeleteBtn">Delete</button>
+            </div>
+
             <div class="card">
-                <div class="card-h"><span class="t">RECENT TRANSACTIONS</span><span class="m" id="wTxMeta">—</span></div>
+                <div class="card-h"><span class="t">Trustlines</span>
+                    <span style="display:flex;align-items:center;gap:12px">
+                        <span class="m" id="wTrMeta">—</span>
+                        <button class="btn sm primary" id="wAddTrustlineBtn">+ Add Trustline</button>
+                    </span>
+                </div>
                 <div class="card-b" style="padding:0">
                     <table class="t">
-                        <thead><tr><th>HASH</th><th>TYPE</th><th>COUNTERPARTY</th><th class="num">AMOUNT</th><th>DATE</th><th>RESULT</th></tr></thead>
-                        <tbody id="wTxBody"><tr><td colspan="6" class="mut" style="text-align:center;padding:18px">no recent activity</td></tr></tbody>
+                        <thead><tr><th>Currency</th><th>Issuer</th><th class="num">Balance</th><th class="num">Limit</th><th></th></tr></thead>
+                        <tbody id="wTrBody"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody>
                     </table>
                 </div>
             </div>
 
             <div class="card">
-                <div class="card-h"><span class="t">TRUSTLINES</span><span class="m" id="wTrMeta">—</span></div>
+                <div class="card-h"><span class="t">Recent activity</span><span class="m" id="wTxMeta">—</span></div>
                 <div class="card-b" style="padding:0">
                     <table class="t">
-                        <thead><tr><th>CURRENCY</th><th>ISSUER</th><th class="num">BALANCE</th><th class="num">LIMIT</th></tr></thead>
-                        <tbody id="wTrBody"><tr><td colspan="4" class="mut" style="text-align:center;padding:18px">no trustlines</td></tr></tbody>
+                        <thead><tr><th>Hash</th><th>Type</th><th>Counterparty</th><th class="num">Amount</th><th>Date</th><th>Result</th></tr></thead>
+                        <tbody id="wTxBody"><tr><td colspan="6" class="empty-state">No recent activity</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -507,6 +536,88 @@
             <button id="seedModalDone" class="btn" style="flex:1">Done</button>
         </div>
         <div class="mut" style="font-size:10px;margin-top:12px">Auto-clears in <span id="seedModalTimer">60</span> seconds.</div>
+    </div>
+</div>
+
+<!-- Receive QR modal — scannable address QR. Generated via the qrcode npm
+     package in main (no UMD bundle available for the contextIsolated
+     renderer), returned as a PNG data URL, painted onto the canvas. -->
+<div id="qrModal" class="lock-overlay" style="z-index:1175">
+    <div class="lock-card" style="max-width:300px;text-align:center">
+        <div class="ttl">Receive XRP</div>
+        <p class="mut" style="font-size:11px;line-height:1.6;margin-bottom:14px">Scan with your phone wallet or exchange app to send XRP to this address.</p>
+        <div style="background:#ffffff;padding:10px;border-radius:6px;display:inline-block;margin:0 auto 12px;min-height:240px;min-width:240px;display:inline-flex;align-items:center;justify-content:center">
+            <canvas id="qrCanvas" width="220" height="220" style="display:block"></canvas>
+        </div>
+        <div id="qrErr" class="mut" style="font-size:10px;color:var(--term-danger,#ff6b6b);margin-bottom:8px;min-height:0"></div>
+        <div id="qrAddr" class="mono tabular" style="font-size:11px;color:var(--term-fg);word-break:break-all;background:#0a0e14;border:1px solid var(--term-line,#1f2731);border-radius:4px;padding:8px 10px;margin-bottom:12px;user-select:text">—</div>
+        <div class="row" style="gap:8px">
+            <button class="btn" id="qrCopyBtn" type="button" style="flex:1">Copy address</button>
+            <button class="btn ghost" id="qrCloseBtn" type="button" style="flex:1">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Transfer modal — move XRP between this device's own wallets. Reuses the
+     standard Payment + sign-and-submit IPC; master password gates the signing
+     step exactly like the Send pane. Two-step UX: form → confirmation. -->
+<div id="transferModal" class="lock-overlay" style="z-index:1180">
+    <div class="lock-card" style="max-width:460px">
+        <!-- Step 1: form -->
+        <div id="xferStepForm">
+            <div class="ttl">Transfer XRP</div>
+            <p class="mut" style="font-size:12px;line-height:1.6;margin-bottom:16px">Move XRP between wallets on this device. The full XRPL fee + 10 XRP base reserve still apply to the source wallet.</p>
+            <div class="field"><label for="xferFrom">From</label><select id="xferFrom"></select></div>
+            <div class="field"><label for="xferTo">To</label><select id="xferTo"></select></div>
+            <div class="field">
+                <label for="xferAmt">Amount (XRP)</label>
+                <input id="xferAmt" type="number" step="0.000001" min="0" placeholder="0.000000" autocomplete="off" />
+                <div class="mut" id="xferAvail" style="font-size:10px;margin-top:4px">Available: —</div>
+            </div>
+            <div class="field"><label for="xferMemo">Memo (optional)</label><input id="xferMemo" placeholder="note attached to the transaction" autocomplete="off" maxlength="120" /></div>
+            <div class="field"><label for="xferPw">Master password (to sign)</label><input id="xferPw" type="password" autocomplete="off" /></div>
+            <div class="row" style="gap:8px;margin-top:6px">
+                <button class="btn primary" id="xferContinue" style="flex:1">Continue</button>
+                <button class="btn ghost" id="xferCancel" style="flex:1" type="button">Cancel</button>
+            </div>
+            <div id="xferFormErr" class="err"></div>
+        </div>
+        <!-- Step 2: confirmation -->
+        <div id="xferStepConfirm" class="hidden">
+            <div class="ttl">Confirm Transfer</div>
+            <p class="mut" style="font-size:12px;line-height:1.6;margin-bottom:14px" id="xferConfirmMsg">—</p>
+            <div style="border:1px solid var(--term-line,#1f2731);border-radius:4px;background:#0a0e14;padding:10px 12px;margin-bottom:14px">
+                <div class="mut" style="font-size:9px;letter-spacing:0.10em;margin-bottom:6px">DESTINATION ADDRESS</div>
+                <code id="xferConfirmAddr" class="tabular" style="display:block;font-size:12px;color:var(--term-fg);word-break:break-all">—</code>
+            </div>
+            <div class="row" style="gap:8px">
+                <button class="btn primary" id="xferSign" style="flex:1">Sign &amp; Send</button>
+                <button class="btn ghost" id="xferBack" style="flex:1" type="button">Back</button>
+            </div>
+            <div id="xferConfirmErr" class="err"></div>
+            <div id="xferConfirmStatus" class="mut" style="margin-top:10px;font-size:11px"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Trustline modal — submits a signed TrustSet (master password required). -->
+<div id="trustlineModal" class="lock-overlay" style="z-index:1180">
+    <div class="lock-card" style="max-width:440px">
+        <div class="ttl">Add Trustline</div>
+        <p class="mut" style="font-size:12px;line-height:1.6;margin-bottom:16px">A trustline lets this wallet hold a token issued by another account. Confirming submits a signed TrustSet to the XRPL.</p>
+        <div class="row" style="gap:8px;margin-bottom:12px">
+            <span class="mut" style="font-size:11px">Quick preset:</span>
+            <button class="btn sm" id="tlPresetRlusd" type="button">RLUSD</button>
+        </div>
+        <div class="field"><label for="tlCur">Currency</label><input id="tlCur" placeholder="RLUSD or 40-hex code" autocomplete="off" /></div>
+        <div class="field"><label for="tlIssuer">Issuer</label><input id="tlIssuer" placeholder="rXXX…" autocomplete="off" /></div>
+        <div class="field"><label for="tlLimit">Limit</label><input id="tlLimit" placeholder="1000" inputmode="decimal" /></div>
+        <div class="field"><label for="tlPw">Master password (to sign)</label><input id="tlPw" type="password" autocomplete="off" /></div>
+        <div class="row" style="gap:8px;margin-top:6px">
+            <button class="btn primary" id="tlSubmit" style="flex:1">Add Trustline</button>
+            <button class="btn ghost" id="tlCancel" style="flex:1" type="button">Cancel</button>
+        </div>
+        <div id="tlErr" class="err"></div>
     </div>
 </div>
 

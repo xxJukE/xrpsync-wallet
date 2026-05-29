@@ -61,9 +61,13 @@ contextBridge.exposeInMainWorld('labs', {
         history:    (address, limit)  => invoke('xrpl:history', { address, limit }),
         trustlines: (address)         => invoke('xrpl:trustlines', address),
         serverInfo: ()                => invoke('xrpl:server-info'),
+        qr:         (address)         => invoke('xrpl:qr', address),
         // Sign-and-submit must be user-initiated (password required each time for non-auto-sign flows).
         signAndSubmit: (address, transaction, password) =>
             invoke('xrpl:sign-and-submit', { address, transaction, password }),
+        // TrustSet — master password required (gated in main like signAndSubmit).
+        setTrustline: ({ currency, issuer, limit, password, address }) =>
+            invoke('xrpl:trustset', { currency, issuer, limit, password, address }),
     },
 
     // ── Auto-sign rules ──

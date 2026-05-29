@@ -11,7 +11,7 @@ const path = require('path');
 // Defer requires that touch electron-store / xrpl until after app.whenReady to keep startup snappy.
 let WalletStore, WalletGenerate, WalletImport, WalletSign, WalletBackup, AutoSign;
 let WalletSync;
-let XrplConnection, XrplBalances, XrplHistory, XrplTrustlines, XrplSubmit;
+let XrplConnection, XrplBalances, XrplHistory, XrplTrustlines, XrplTrustSet, XrplSubmit;
 let BridgeServer, BridgeRemote, BridgeProtocol;
 let AccountApi, AccountSession, AccountPayment;
 
@@ -25,7 +25,7 @@ const KEYTAR_ACCOUNT = 'master-password';
 const LABS_API_BASE = process.env.LABS_API_BASE || 'https://xrpsync.com';
 // Bump on each release build so a running binary can be identified vs older
 // installs (logged at startup + surfaced in the wallet footer / app:info IPC).
-const BUILD_STAMP = '2026-05-25';
+const BUILD_STAMP = '2026-05-27';
 let pendingSyncTimer = null;
 
 let mainWindow = null;
@@ -163,6 +163,7 @@ app.whenReady().then(() => {
     XrplBalances    = require('./src/xrpl/balances');
     XrplHistory     = require('./src/xrpl/history');
     XrplTrustlines  = require('./src/xrpl/trustlines');
+    XrplTrustSet    = require('./src/xrpl/trustset');
     XrplSubmit      = require('./src/xrpl/submit');
     BridgeServer    = require('./src/bridge/server');
     BridgeRemote    = require('./src/bridge/remote');
@@ -460,6 +461,16 @@ function registerIpc() {
     ipcMain.handle('xrpl:trustlines', async (_e, address) => XrplTrustlines.fetch(address));
     ipcMain.handle('xrpl:server-info', async () => XrplConnection.serverInfo());
 
+    // QR code for an address — returns a PNG data URL the renderer can paint
+    // onto a canvas. qrcode 1.5+ does not ship a UMD bundle suitable for the
+    // contextIsolated renderer, so generation lives here in main where the
+    // CommonJS entry works directly.
+    ipcMain.handle('xrpl:qr', async (_e, address) => {
+        if (!address || typeof address !== 'string') throw new Error('address_required');
+        const QRCode = require('qrcode');
+        return QRCode.toDataURL(address, { width: 220, margin: 2, errorCorrectionLevel: 'M' });
+    });
+
     // Manual sign + submit (user-initiated, e.g. "Send Payment" form in UI)
     ipcMain.handle('xrpl:sign-and-submit', async (_e, { address, transaction, password }) => {
         ensureUnlocked();
@@ -468,6 +479,23 @@ function registerIpc() {
         const signed = WalletSign.sign(seed, prepared);
         const result = await XrplSubmit.submitSignedBlob(signed.tx_blob);
         return { hash: signed.hash, result };
+    });
+
+    // TrustSet — user-initiated, master-password gated like sign-and-submit.
+    // The renderer never holds the seed; we resolve it here from the master
+    // password, build an unlocked xrpl.js Wallet, and hand it to the adapter.
+    ipcMain.handle('xrpl:trustset', async (_e, { currency, issuer, limit, password, address } = {}) => {
+        ensureUnlocked();
+        const xrpl = require('xrpl');
+        const acct = address || WalletStore.defaultAddress();
+        if (!acct) return { ok: false, error: 'no_wallet' };
+        let seed;
+        try { seed = await WalletStore.revealSecret(acct, password); }
+        catch (_) { return { ok: false, error: 'wrong_password' }; }
+        let wallet;
+        try { wallet = xrpl.Wallet.fromSeed(seed); }
+        catch (_) { return { ok: false, error: 'key_error' }; }
+        return XrplTrustSet.submit({ wallet, currency, issuer, limit });
     });
 
     // Auto-sign rules
