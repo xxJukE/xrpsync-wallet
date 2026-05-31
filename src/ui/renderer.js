@@ -9,6 +9,7 @@ const state = {
     pane: 'welcome',
     autoSignRules: {},
     autoSignLog: [],
+    autoSignAllowed: undefined, // resolved from account entitlements (Pro = true)
 };
 
 const $ = (id) => document.getElementById(id);
@@ -787,19 +788,53 @@ $('iwImport').addEventListener('click', async () => {
 async function refreshAutoSign() {
     state.autoSignRules = await window.labs.autosign.all();
     state.autoSignLog = await window.labs.autosign.log(50);
+    // Auto-sign is a Pro feature. Resolve the live entitlement so the pane
+    // renders unlocked (Pro+) or visible-but-locked (Free / logged-out).
+    try {
+        const acct = await window.labs.account.status();
+        const u = acct && acct.user;
+        const flag = u && u.entitlements && u.entitlements.flags ? u.entitlements.flags.auto_sign : undefined;
+        state.autoSignAllowed = (typeof flag === 'boolean') ? flag : !!(u && u.is_pro);
+    } catch (_) { state.autoSignAllowed = false; }
     renderAutoSignList();
     renderAutoSignLog();
+}
+
+// Shown when the user tries to enable auto-sign — irreversibility + no liability.
+// Returns true only if the user explicitly accepts.
+function confirmAutoSignEnable(site) {
+    return window.confirm(
+        'Enable auto-sign for ' + site + '?\n\n' +
+        '⚠ One-click / auto-signing submits REAL XRPL transactions from your wallet ' +
+        'WITHOUT a per-trade prompt, up to the limits you set.\n\n' +
+        'Trades are irreversible. A wrong price, amount, or pair CANNOT be undone, ' +
+        'and XRPSync takes no responsibility for transactions you authorize this way.\n\n' +
+        'It stays OFF by default and you can disable it at any time. Continue?'
+    );
 }
 
 function renderAutoSignList() {
     const el = $('asList');
     const rules = state.autoSignRules;
     const sites = Object.keys(rules);
+    const allowed = state.autoSignAllowed !== false; // undefined → treat as allowed until resolved
+
+    // Pro gate banner. Free/logged-out users see the pane but locked.
+    const lockBanner = allowed ? '' :
+        '<div class="card" style="border-color:#3b3f51;margin-bottom:10px">' +
+        '<div class="card-b" style="display:flex;align-items:center;gap:10px">' +
+        '<span style="font-size:16px">🔒</span>' +
+        '<div><div style="font-weight:600">Auto-sign is a Pro feature</div>' +
+        '<small class="mut">Upgrade to Pro to enable one-click trading. You can still approve each trade manually.</small></div>' +
+        '<button class="btn" data-pane="account-manage" style="margin-left:auto" id="asUpgradeBtn">Upgrade</button>' +
+        '</div></div>';
+
     if (!sites.length) {
-        el.innerHTML = '<div class="mut" style="text-align:center;padding:14px;font-size:10px">no sites configured</div>';
+        el.innerHTML = lockBanner + '<div class="mut" style="text-align:center;padding:14px;font-size:10px">no sites configured</div>';
+        wireAutoSignUpgrade(el);
         return;
     }
-    el.innerHTML = sites.map(site => {
+    el.innerHTML = lockBanner + sites.map(site => {
         const r = rules[site];
         return `<div class="card" data-site="${site}">
             <div class="card-h"><span class="t">${site}</span>
@@ -827,7 +862,15 @@ function renderAutoSignList() {
         const action = b.dataset.action;
         const rules = state.autoSignRules[site] || {};
         if (action === 'toggle') {
-            rules.enabled = !rules.enabled;
+            const turningOn = !rules.enabled;
+            if (turningOn) {
+                if (state.autoSignAllowed === false) {
+                    window.alert('Auto-sign is a Pro feature. Upgrade to Pro to enable one-click trading.');
+                    return;
+                }
+                if (!confirmAutoSignEnable(site)) return; // irreversibility warning
+            }
+            rules.enabled = turningOn;
             await window.labs.autosign.set(site, rules);
             await refreshAutoSign();
         } else if (action === 'remove') {
@@ -849,6 +892,14 @@ function renderAutoSignList() {
             await refreshAutoSign();
         }
     }));
+
+    wireAutoSignUpgrade(el);
+}
+
+// Bind the "Upgrade" button in the Pro-gate banner to the account pane.
+function wireAutoSignUpgrade(el) {
+    const btn = el.querySelector('#asUpgradeBtn');
+    if (btn) btn.addEventListener('click', () => showPane('account-manage'));
 }
 
 function renderAutoSignLog() {
@@ -1402,6 +1453,42 @@ window.labs.appInfo().then((info) => {
     if (f && info && info.version) f.textContent = 'v' + info.version + ' · build ' + (info.build || '?');
 }).catch(() => {});
 setInterval(refreshStatus, 15_000);
+
+// ── Auto-update pill ──────────────────────────────────────────────────────────
+// Main checks silently and emits ui:update events. Pill states:
+//   available → click to download · downloading → progress · ready → click to restart.
+// Lets the user update in-place instead of uninstall/reinstall.
+(function initUpdatePill() {
+    const pill = $('updatePill');
+    if (!pill) return;
+    let st = 'idle'; // idle | available | downloading | ready | error
+
+    const show = (text, bg) => { pill.textContent = text; pill.style.background = bg || '#1652f0'; pill.style.display = ''; };
+    const hide = () => { pill.style.display = 'none'; };
+
+    window.labs.on.update((p) => {
+        if (!p) return;
+        if (p.type === 'available')      { st = 'available';   show('⬆ Update' + (p.version ? ' v' + p.version : '') + ' — click to install'); }
+        else if (p.type === 'progress')  { st = 'downloading'; show('Downloading… ' + (p.percent || 0) + '%', '#3b3f51'); }
+        else if (p.type === 'ready')     { st = 'ready';       show('✔ Update ready — click to restart', '#16a34a'); }
+        else if (p.type === 'error')     { if (st !== 'idle') { st = 'error'; show('Update failed — click to retry', '#b91c1c'); } }
+        // 'none' → leave whatever is showing (usually nothing)
+    });
+
+    pill.addEventListener('click', async () => {
+        if (st === 'available') {
+            st = 'downloading'; show('Downloading… 0%', '#3b3f51');
+            const r = await window.labs.update.download();
+            if (!r || !r.ok) { st = 'error'; show('Download failed — click to retry', '#b91c1c'); }
+        } else if (st === 'ready') {
+            await window.labs.update.install(); // quits + relaunches into the new version
+        } else if (st === 'error' || st === 'idle') {
+            st = 'idle'; show('Checking…', '#3b3f51');
+            const r = await window.labs.update.check();
+            if (!r || !r.ok || !r.version) hide();
+        }
+    });
+})();
 
 // ── Receive QR ──────────────────────────────────────────────────────────────
 // QR is generated in main (qrcode npm package) and returned as a PNG data URL.

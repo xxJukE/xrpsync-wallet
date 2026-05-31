@@ -53,7 +53,9 @@
 <div class="lw-app">
     <div class="lw-top">
         <span class="brand">XRPSync Wallet</span>
-        <span class="status">
+        <!-- Auto-update pill: hidden until an update is available; renderer.js drives state/click. -->
+        <span id="updatePill" style="display:none;cursor:pointer;margin-left:14px;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;background:#1652f0;color:#fff;white-space:nowrap"></span>
+        <span class="status" style="margin-left:auto">
             <span><span id="netDot" class="dot"></span><span id="netLabel">connecting…</span></span>
             <span><span id="bridgeDot" class="dot"></span><span id="bridgeLabel">bridge: idle</span></span>
             <span class="lock-state">

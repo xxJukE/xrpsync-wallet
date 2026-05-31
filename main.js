@@ -33,6 +33,8 @@ let approvalWindow = null;
 let tray = null;
 let lockTimer = null;
 let isLocked = true;
+let Updater = null;          // src/update/updater (packaged builds only)
+let updateCheckTimer = null;
 
 // ── Single-instance lock ────────────────────────────────────────────────────
 // Prevents multiple wallet instances from running at once. Without this, extra
@@ -189,6 +191,7 @@ app.whenReady().then(() => {
     buildMenu();
     registerIpc();
     startBridges();
+    startUpdater();
 
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow(); });
 });
@@ -245,6 +248,11 @@ function registerIpc() {
         electron: process.versions.electron,
         platform: process.platform,
     }));
+
+    // ── Auto-update (pill-driven) ──
+    ipcMain.handle('update:check',    () => Updater ? Updater.check()    : { ok: false, error: 'updates disabled (dev build)' });
+    ipcMain.handle('update:download', () => Updater ? Updater.download() : { ok: false, error: 'updates disabled (dev build)' });
+    ipcMain.handle('update:install',  () => { if (Updater) Updater.install(); return { ok: true }; });
 
     // ── Settings: password recovery (OS keychain copy of master pw) ──
     // Off by default. When enabled the user can reveal the master password
@@ -688,6 +696,31 @@ function scheduleAutoSync() {
     }, 1500);
 }
 
+// ── Auto-update ───────────────────────────────────────────────────────────────
+// Packaged builds only — electron-updater throws under `electron .` in dev.
+// Silent check; the renderer shows a pill when something is available.
+function startUpdater() {
+    if (!app.isPackaged) {
+        console.log('[main] updater disabled (dev / unpackaged)');
+        return;
+    }
+    try {
+        Updater = require('./src/update/updater');
+        Updater.init({
+            logger: console,
+            onEvent: (type, data) => {
+                try { mainWindow?.webContents.send('ui:update', { type, ...(data || {}) }); } catch (_) {}
+            },
+        });
+        // First check shortly after launch, then every 6 hours.
+        setTimeout(() => { Updater.check(); }, 8000);
+        updateCheckTimer = setInterval(() => { Updater.check(); }, 6 * 60 * 60 * 1000);
+    } catch (e) {
+        console.warn('[main] updater unavailable:', e?.message || e);
+        Updater = null;
+    }
+}
+
 // ── Bridges ─────────────────────────────────────────────────────────────────
 function startBridges() {
     // Local WS server (browser → wallet) on 127.0.0.1
@@ -724,6 +757,8 @@ function getWalletInfoSync() {
             account = {
                 id: u.id, name: u.name, email: u.email,
                 tier: u.tier, is_pro: !!u.is_pro, is_growth: !!u.is_growth,
+                // Resolved entitlements so the website gates one-click identically.
+                entitlements: u.entitlements || null,
                 expires_at: u.expires_at || null,
             };
         }
@@ -746,12 +781,34 @@ async function getWalletBalances(address) {
     return out;
 }
 
+// Auto-sign is a Pro entitlement. The server asserts it in the authenticated
+// me() payload (entitlements.flags.auto_sign); we read the cached copy. Falls
+// back to is_pro for older payloads. NOT cryptographically airtight (the user
+// owns this binary) — it gates the convenience and stops revenue leakage. A
+// Free user can still MANUALLY approve every trade in the approval window.
+function accountAllowsAutoSign() {
+    try {
+        const u = AccountSession?.getUser();
+        if (!u || !AccountSession.isLoggedIn()) return false;
+        const flag = u.entitlements?.flags?.auto_sign;
+        if (typeof flag === 'boolean') return flag;
+        return !!u.is_pro; // back-compat for payloads predating entitlements
+    } catch (_) { return false; }
+}
+
 async function onSignRequest(req, source) {
     const validation = BridgeProtocol.validateSignRequest(req);
     if (!validation.ok) return BridgeProtocol.sendResponse(req, source, { status: 'rejected', reason: 'invalid_request: ' + validation.reason });
 
     const site = req.source || 'unknown';
     const verdict = AutoSign.canAutoSign(site, req.transaction);
+
+    // Tier gate: even if the local rules allow it, only Pro+ may auto-sign.
+    // Free (or logged-out) falls through to manual approval — never silently signs.
+    if (verdict.allowed && !isLocked && !accountAllowsAutoSign()) {
+        AutoSign.logAutoSign(site, req.transaction, { result: 'auto_sign_blocked_no_pro' });
+        return showApprovalWindow({ ...req, source });
+    }
 
     if (verdict.allowed && !isLocked) {
         // Auto-sign path

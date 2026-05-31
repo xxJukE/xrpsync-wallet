@@ -18,6 +18,7 @@
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
     "electron-store": "^8.2.0",
+    "electron-updater": "^6.3.9",
     "keytar": "^7.9.0",
     "qrcode": "^1.5.4",
     "uuid": "^9.0.1",
@@ -33,6 +34,14 @@
     "appId": "com.xrpsync.wallet",
     "productName": "XRPSync Wallet",
     "artifactName": "XRPSync-Wallet-Setup-${version}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "xxJukE",
+        "repo": "xrpsync-wallet",
+        "releaseType": "release"
+      }
+    ],
     "files": [
       "main.js",
       "preload.js",

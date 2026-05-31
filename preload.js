@@ -93,6 +93,13 @@ contextBridge.exposeInMainWorld('labs', {
     // ── Build identity (footer version + diagnostics) ──
     appInfo: () => invoke('app:info'),
 
+    // ── Auto-update (pill-driven) ──
+    update: {
+        check:    () => invoke('update:check'),
+        download: () => invoke('update:download'),
+        install:  () => invoke('update:install'),
+    },
+
     // ── XRPSync account / subscription ──
     account: {
         status:       ()                          => invoke('account:status'),
@@ -121,5 +128,7 @@ contextBridge.exposeInMainWorld('labs', {
         autoSigned:  (handler) => ipcRenderer.on('ui:auto-signed', (_e, payload) => handler(payload)),
         nav:         (handler) => ipcRenderer.on('ui:nav', (_e, target) => handler(target)),
         syncUpdated: (handler) => ipcRenderer.on('ui:sync-updated', (_e, payload) => handler(payload)),
+        // Auto-update lifecycle: payload = { type: 'available'|'none'|'progress'|'ready'|'error', ... }
+        update:      (handler) => ipcRenderer.on('ui:update', (_e, payload) => handler(payload)),
     },
 });
