@@ -6,11 +6,14 @@
 
 const xrpl = require('xrpl');
 
-const ENDPOINTS = [
-    'wss://xrplcluster.com',
-    'wss://s1.ripple.com',
-    'wss://s2.ripple.com',
-];
+// Network is switchable so the Treasury → Create Token wizard can rehearse the
+// whole irreversible flow on testnet (free faucet XRP) before doing it for real.
+const NETWORKS = {
+    mainnet: ['wss://xrplcluster.com', 'wss://s1.ripple.com', 'wss://s2.ripple.com'],
+    testnet: ['wss://s.altnet.rippletest.net:51233'],
+};
+let network = 'mainnet';
+let ENDPOINTS = NETWORKS.mainnet;
 
 let client = null;
 let connecting = null;
@@ -49,6 +52,20 @@ async function disconnect() {
     if (client) { try { await client.disconnect(); } catch (_) {} client = null; }
 }
 
+// Switch the active network (mainnet|testnet) and force a reconnect to it.
+// Used by the token-creation wizard's testnet rehearsal toggle.
+async function setNetwork(net) {
+    if (!NETWORKS[net]) throw new Error('unknown_network: ' + net);
+    if (net === network) return network;
+    network = net;
+    ENDPOINTS = NETWORKS[net];
+    endpointIdx = 0;
+    await disconnect();   // next getClient() connects to the new network
+    return network;
+}
+
+function getNetwork() { return network; }
+
 async function autofill(transaction) {
     const c = await getClient();
     return c.autofill(transaction);
@@ -65,4 +82,4 @@ async function request(req) {
     return c.request(req);
 }
 
-module.exports = { getClient, disconnect, autofill, serverInfo, request };
+module.exports = { getClient, disconnect, autofill, serverInfo, request, setNetwork, getNetwork };
