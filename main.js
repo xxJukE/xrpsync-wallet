@@ -11,7 +11,7 @@ const path = require('path');
 // Defer requires that touch electron-store / xrpl until after app.whenReady to keep startup snappy.
 let WalletStore, WalletGenerate, WalletImport, WalletSign, WalletBackup, AutoSign;
 let WalletSync;
-let XrplConnection, XrplBalances, XrplHistory, XrplTrustlines, XrplTrustSet, XrplSubmit;
+let XrplConnection, XrplBalances, XrplHistory, XrplTrustlines, XrplTrustSet, XrplTokenIssuer, XrplSubmit;
 let BridgeServer, BridgeRemote, BridgeProtocol;
 let AccountApi, AccountSession, AccountPayment;
 
@@ -166,6 +166,7 @@ app.whenReady().then(() => {
     XrplHistory     = require('./src/xrpl/history');
     XrplTrustlines  = require('./src/xrpl/trustlines');
     XrplTrustSet    = require('./src/xrpl/trustset');
+    XrplTokenIssuer = require('./src/xrpl/token-issuer');
     XrplSubmit      = require('./src/xrpl/submit');
     BridgeServer    = require('./src/bridge/server');
     BridgeRemote    = require('./src/bridge/remote');
@@ -505,6 +506,63 @@ function registerIpc() {
         catch (_) { return { ok: false, error: 'key_error' }; }
         return XrplTrustSet.submit({ wallet, currency, issuer, limit });
     });
+
+    // ── Treasury → Create Token (fixed-supply, blackholed) ──
+    // Resolve an unlocked xrpl.js Wallet from address+master-password (the
+    // renderer never holds the seed) — shared by every issuer-signed step.
+    const resolveWallet = async (address, password) => {
+        const xrpl = require('xrpl');
+        const acct = address || WalletStore.defaultAddress();
+        if (!acct) return { ok: false, error: 'no_wallet' };
+        let seed;
+        try { seed = await WalletStore.revealSecret(acct, password); }
+        catch (_) { return { ok: false, error: 'wrong_password' }; }
+        try { return { ok: true, wallet: xrpl.Wallet.fromSeed(seed) }; }
+        catch (_) { return { ok: false, error: 'key_error' }; }
+    };
+
+    ipcMain.handle('token:set-network', async (_e, { net } = {}) => {
+        try { return { ok: true, network: await XrplConnection.setNetwork(net) }; }
+        catch (e) { return { ok: false, error: (e && e.message) || 'network_error' }; }
+    });
+    ipcMain.handle('token:get-network', () => ({ ok: true, network: XrplConnection.getNetwork() }));
+    ipcMain.handle('token:account-state', async (_e, { address } = {}) => XrplTokenIssuer.accountState(address));
+
+    // Fresh, dedicated issuer wallet (stored so its seed is backed up; blackholed at the end).
+    ipcMain.handle('token:create-issuer', async (_e, { label } = {}) => {
+        ensureUnlocked();
+        const w = WalletGenerate.create();
+        await WalletStore.saveWallet(w, label || 'Token Issuer');
+        scheduleAutoSync();
+        return { ok: true, address: w.address };
+    });
+
+    ipcMain.handle('token:faucet', async (_e, { address, password } = {}) => {
+        ensureUnlocked();
+        const r = await resolveWallet(address, password);
+        return r.ok ? XrplTokenIssuer.faucetFund(r.wallet) : r;
+    });
+    ipcMain.handle('token:set-flag', async (_e, { address, password, flag } = {}) => {
+        ensureUnlocked();
+        const r = await resolveWallet(address, password);
+        return r.ok ? XrplTokenIssuer.setAccountFlag(r.wallet, flag) : r;
+    });
+    ipcMain.handle('token:set-domain', async (_e, { address, password, domain } = {}) => {
+        ensureUnlocked();
+        const r = await resolveWallet(address, password);
+        return r.ok ? XrplTokenIssuer.setDomain(r.wallet, domain) : r;
+    });
+    ipcMain.handle('token:issue', async (_e, { address, password, distributor, currency, value } = {}) => {
+        ensureUnlocked();
+        const r = await resolveWallet(address, password);
+        return r.ok ? XrplTokenIssuer.issueSupply(r.wallet, distributor, currency, value) : r;
+    });
+    ipcMain.handle('token:blackhole', async (_e, { address, password } = {}) => {
+        ensureUnlocked();
+        const r = await resolveWallet(address, password);
+        return r.ok ? XrplTokenIssuer.blackhole(r.wallet) : r;
+    });
+    ipcMain.handle('token:toml', (_e, opts = {}) => ({ ok: true, toml: XrplTokenIssuer.buildToml(opts) }));
 
     // Auto-sign rules
     ipcMain.handle('autosign:rules', () => AutoSign.getAllRules());

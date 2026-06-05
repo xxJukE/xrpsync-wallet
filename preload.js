@@ -70,6 +70,20 @@ contextBridge.exposeInMainWorld('labs', {
             invoke('xrpl:trustset', { currency, issuer, limit, password, address }),
     },
 
+    // ── Treasury → Create Token (fixed-supply, blackholed) ──
+    token: {
+        getNetwork:    ()                       => invoke('token:get-network'),
+        setNetwork:    (net)                    => invoke('token:set-network', { net }),
+        accountState:  (address)                => invoke('token:account-state', { address }),
+        createIssuer:  (label)                  => invoke('token:create-issuer', { label }),
+        faucet:        (address, password)      => invoke('token:faucet', { address, password }),
+        setFlag:       (address, password, flag)   => invoke('token:set-flag', { address, password, flag }),
+        setDomain:     (address, password, domain) => invoke('token:set-domain', { address, password, domain }),
+        issue:         (p)                      => invoke('token:issue', p),   // {address,password,distributor,currency,value}
+        blackhole:     (address, password)      => invoke('token:blackhole', { address, password }),
+        toml:          (opts)                   => invoke('token:toml', opts),
+    },
+
     // ── Auto-sign rules ──
     autosign: {
         all:        ()                  => invoke('autosign:rules'),
