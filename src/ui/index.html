@@ -150,6 +150,7 @@
             <div class="actions">
                 <button class="btn primary" id="wSendBtn">Send</button>
                 <button class="btn" id="wTransferBtn" title="Move XRP between your own wallets">Transfer</button>
+                <button class="btn" id="wCreateTokenBtn" title="Mint a fixed-supply XRPL token from this Treasury">Create Token</button>
                 <button class="btn" id="wRefresh">↻ Refresh</button>
                 <button class="btn buy-xrp" id="wFundBtn" title="Buy XRP with credit card on XRPSync">Fund wallet</button>
                 <button class="btn warn" id="wRevealBtn">Reveal seed</button>
@@ -620,6 +621,96 @@
             <button class="btn ghost" id="tlCancel" style="flex:1" type="button">Cancel</button>
         </div>
         <div id="tlErr" class="err"></div>
+    </div>
+</div>
+
+<!-- Create Token wizard — fixed-supply, blackholed. Multi-step (steps toggle via .hidden). -->
+<div id="createTokenModal" class="lock-overlay" style="z-index:1185">
+    <div class="lock-card" style="max-width:540px">
+
+        <!-- Step 1: setup -->
+        <div id="ctStep1">
+            <div class="ttl">Create Token</div>
+            <p class="mut" style="font-size:11px;line-height:1.6;margin-bottom:14px">Mint a <b>fixed-supply</b> XRPL token. A fresh issuer is created and then <b>blackholed</b> so supply can never be inflated; your chosen <b>Treasury</b> wallet receives and holds the entire supply.</p>
+            <div class="field">
+                <label>Network</label>
+                <div class="row" style="gap:8px">
+                    <button class="btn sm primary" id="ctNetMain" type="button" style="flex:1">Mainnet</button>
+                    <button class="btn sm" id="ctNetTest" type="button" style="flex:1">Testnet (rehearse)</button>
+                </div>
+                <div class="mut" id="ctNetNote" style="font-size:10px;margin-top:5px">Mainnet — real funds, irreversible. Do a free Testnet rehearsal first.</div>
+            </div>
+            <div class="field"><label for="ctTreasury">Treasury — holds the supply</label><select id="ctTreasury"></select></div>
+            <div class="row" style="gap:8px">
+                <div class="field" style="flex:2"><label for="ctName">Token name</label><input id="ctName" placeholder="Sync" maxlength="40" autocomplete="off" /></div>
+                <div class="field" style="flex:1"><label for="ctCode">Code</label><input id="ctCode" placeholder="SYNC" maxlength="20" autocomplete="off" /></div>
+            </div>
+            <div class="row" style="gap:8px">
+                <div class="field" style="flex:1"><label for="ctSupply">Total supply</label><input id="ctSupply" placeholder="1000000000" inputmode="decimal" autocomplete="off" /></div>
+                <div class="field" style="flex:1"><label for="ctDomain">Domain</label><input id="ctDomain" placeholder="xrpsync.com" autocomplete="off" /></div>
+            </div>
+            <div class="field"><label for="ctPw">Master password (to sign every step)</label><input id="ctPw" type="password" autocomplete="off" /></div>
+            <div class="row" style="gap:8px;margin-top:6px">
+                <button class="btn primary" id="ctReview" style="flex:1">Review &amp; mint →</button>
+                <button class="btn ghost" id="ctCancel" style="flex:1" type="button">Cancel</button>
+            </div>
+            <div id="ctErr1" class="err"></div>
+        </div>
+
+        <!-- Step 2: run -->
+        <div id="ctStep2" class="hidden">
+            <div class="ttl">Minting <span id="ctRunCode" class="tabular"></span> <span id="ctRunNet" class="mut" style="font-size:10px"></span></div>
+            <div id="ctChecklist" style="border:1px solid var(--term-line,#1f2731);border-radius:4px;background:#0a0e14;padding:10px 12px;margin:10px 0;font-size:11px;line-height:1.9"></div>
+            <div id="ctFundBox" class="hidden" style="border:1px solid var(--term-warn,#f7c948);border-radius:4px;background:#0a0e14;padding:10px 12px;margin-bottom:10px">
+                <div class="mut" style="font-size:10px;margin-bottom:6px">Fund the issuer — send ~5 XRP to this address (Transfer from your Treasury works), then continue:</div>
+                <code id="ctIssuerAddr" class="tabular" style="display:block;font-size:11px;color:var(--term-fg);word-break:break-all;margin-bottom:8px"></code>
+                <div class="row" style="gap:8px">
+                    <button class="btn sm ghost" id="ctCopyIssuer" type="button">Copy</button>
+                    <button class="btn sm primary" id="ctCheckFund" type="button">I've funded it →</button>
+                </div>
+            </div>
+            <div class="row" style="gap:8px">
+                <button class="btn primary" id="ctRun" style="flex:1">Run</button>
+                <button class="btn ghost" id="ctBack1" style="flex:1" type="button">Back</button>
+            </div>
+            <div id="ctErr2" class="err"></div>
+        </div>
+
+        <!-- Step 3: verify -->
+        <div id="ctStep3" class="hidden">
+            <div class="ttl">Verify before locking</div>
+            <p class="mut" id="ctVerifyMsg" style="font-size:12px;line-height:1.6;margin:10px 0 14px">—</p>
+            <div class="row" style="gap:8px">
+                <button class="btn primary" id="ctToLock" style="flex:1">Looks right → Lock supply</button>
+                <button class="btn ghost" id="ctStopHere" style="flex:1" type="button">Stop (lock later)</button>
+            </div>
+        </div>
+
+        <!-- Step 4: blackhole -->
+        <div id="ctStep4" class="hidden">
+            <div class="ttl" style="color:var(--term-warn,#f7c948)">&#9888; Blackhole the issuer — permanent</div>
+            <p class="mut" style="font-size:11px;line-height:1.6;margin:10px 0 14px">This disables the issuer's keys <b>forever</b> so the supply can never change. <b>There is no undo.</b></p>
+            <div class="field"><label>Type <b id="ctConfirmCode" class="tabular"></b> to confirm</label><input id="ctConfirmInput" autocomplete="off" /></div>
+            <div class="field"><label for="ctBhPw">Master password</label><input id="ctBhPw" type="password" autocomplete="off" /></div>
+            <div class="row" style="gap:8px">
+                <button class="btn danger" id="ctBlackhole" style="flex:1" disabled>Blackhole &#128274;</button>
+                <button class="btn ghost" id="ctSkipBh" style="flex:1" type="button">Not now</button>
+            </div>
+            <div id="ctErr4" class="err"></div>
+        </div>
+
+        <!-- Step 5: done -->
+        <div id="ctStep5" class="hidden">
+            <div class="ttl" style="color:var(--term-profit,#4adea1)">&#10003; Token created</div>
+            <p class="mut" id="ctDoneMsg" style="font-size:12px;line-height:1.6;margin:10px 0 12px">—</p>
+            <div class="mut" style="font-size:10px;margin-bottom:5px">xrp-ledger.toml — host at <span id="ctDoneDomain" class="tabular"></span>/.well-known/xrp-ledger.toml</div>
+            <textarea id="ctToml" readonly style="width:100%;height:140px;background:#0a0e14;border:1px solid var(--term-line,#1f2731);border-radius:4px;color:var(--term-fg);font-family:monospace;font-size:11px;padding:10px;resize:vertical;user-select:text"></textarea>
+            <div class="row" style="gap:8px;margin-top:10px">
+                <button class="btn" id="ctCopyToml" style="flex:1" type="button">Copy toml</button>
+                <button class="btn primary" id="ctDone" style="flex:1" type="button">Done</button>
+            </div>
+        </div>
+
     </div>
 </div>
 

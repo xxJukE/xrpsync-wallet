@@ -1559,3 +1559,193 @@ document.addEventListener('keydown', (e) => {
         closeQrModalIfOpen();
     }
 });
+
+// ── Create Token wizard (fixed-supply, two-account, blackholed) ──────────
+(() => {
+    const ct = {};
+    const STEPS = [
+        ['issuer', 'Create fresh issuer wallet'],
+        ['fund', 'Fund issuer'],
+        ['defaultripple', 'Set DefaultRipple'],
+        ['nofreeze', 'Set NoFreeze'],
+        ['domain', 'Set Domain'],
+        ['trust', 'Treasury trustline'],
+        ['issue', 'Issue supply to Treasury'],
+    ];
+    const labelFor = (k) => (STEPS.find((s) => s[0] === k) || [, k])[1];
+    const showStep = (n) => { for (let i = 1; i <= 5; i++) $('ctStep' + i).classList.toggle('hidden', i !== n); };
+
+    async function setNet(net, silent) {
+        ct.network = net;
+        $('ctNetMain').classList.toggle('primary', net === 'mainnet');
+        $('ctNetTest').classList.toggle('primary', net === 'testnet');
+        $('ctNetNote').textContent = net === 'testnet'
+            ? 'Testnet — free faucet XRP, a safe rehearsal. Nothing real is minted.'
+            : 'Mainnet — real funds, irreversible. Do a free Testnet rehearsal first.';
+        if (!silent) { try { await window.labs.token.setNetwork(net); } catch (_) {} }
+    }
+
+    async function openCT() {
+        let wallets = [];
+        try { wallets = (await window.labs.wallet.list()) || []; } catch (_) {}
+        const sel = $('ctTreasury'); sel.innerHTML = '';
+        wallets.forEach((w) => {
+            const o = document.createElement('option');
+            o.value = w.address;
+            o.textContent = (w.label ? w.label + ' — ' : '') + w.address.slice(0, 8) + '…' + w.address.slice(-4);
+            sel.appendChild(o);
+        });
+        if (state.activeAddress) sel.value = state.activeAddress;
+        ['ctName', 'ctCode', 'ctSupply', 'ctPw'].forEach((id) => { $(id).value = ''; });
+        $('ctDomain').value = 'xrpsync.com';
+        $('ctErr1').textContent = '';
+        await setNet('mainnet');            // reset connection + UI to mainnet
+        showStep(1);
+        $('createTokenModal').classList.add('is-open');
+        setTimeout(() => $('ctName').focus(), 30);
+    }
+    const closeCT = () => $('createTokenModal').classList.remove('is-open');
+
+    $('wCreateTokenBtn')?.addEventListener('click', openCT);
+    $('ctCancel')?.addEventListener('click', closeCT);
+    $('ctNetMain')?.addEventListener('click', () => setNet('mainnet'));
+    $('ctNetTest')?.addEventListener('click', () => setNet('testnet'));
+
+    const renderChecklist = () => {
+        $('ctChecklist').innerHTML = STEPS.map(([k, l]) => `<div id="ct_${k}">○ ${l}</div>`).join('');
+    };
+    const mark = (k, st, detail) => {
+        const el = $('ct_' + k); if (!el) return;
+        const ic = st === 'ok' ? '<span style="color:var(--term-profit,#4adea1)">✓</span>'
+            : st === 'run' ? '<span style="color:var(--term-warn,#f7c948)">…</span>'
+            : st === 'err' ? '<span style="color:var(--term-danger,#ff6b6b)">✗</span>' : '○';
+        el.innerHTML = `${ic} ${labelFor(k)}${detail ? ` <span class="mut" style="font-size:10px">${detail}</span>` : ''}`;
+    };
+    const guard = async (k, fn) => {
+        mark(k, 'run');
+        let r; try { r = await fn(); } catch (e) { r = { ok: false, error: e?.message || 'failed' }; }
+        if (!r || r.ok === false) { mark(k, 'err', r && r.error); throw new Error((r && r.error) || k + '_failed'); }
+        mark(k, 'ok', r.tx_hash ? ('tx ' + String(r.tx_hash).slice(0, 8) + '…') : '');
+        return r;
+    };
+
+    $('ctReview')?.addEventListener('click', () => {
+        const err = $('ctErr1'); err.textContent = '';
+        const treasury = $('ctTreasury').value;
+        const code = $('ctCode').value.trim();
+        const supply = $('ctSupply').value.trim();
+        if (!treasury) { err.textContent = 'Pick a Treasury wallet.'; return; }
+        if (!code || code.length < 3) { err.textContent = 'Enter a currency code (≥3 chars, e.g. SYNC).'; return; }
+        if (!/^\d+(\.\d+)?$/.test(supply) || Number(supply) <= 0) { err.textContent = 'Enter a total supply > 0.'; return; }
+        if (!$('ctPw').value) { err.textContent = 'Master password is required.'; return; }
+        Object.assign(ct, {
+            treasury, code, supply,
+            name: $('ctName').value.trim(),
+            domain: $('ctDomain').value.trim(),
+            pw: $('ctPw').value,
+            issuerAddr: null, funded: false,
+        });
+        $('ctRunCode').textContent = code; $('ctRunNet').textContent = '· ' + ct.network;
+        renderChecklist(); $('ctFundBox').classList.add('hidden'); $('ctErr2').textContent = '';
+        $('ctRun').disabled = false; $('ctRun').textContent = 'Run';
+        showStep(2);
+    });
+    $('ctBack1')?.addEventListener('click', () => showStep(1));
+
+    async function runRest() {
+        const { issuerAddr: issuer, treasury, code, supply, domain, pw } = ct;
+        await guard('defaultripple', () => window.labs.token.setFlag(issuer, pw, 'DefaultRipple'));
+        await guard('nofreeze', () => window.labs.token.setFlag(issuer, pw, 'NoFreeze'));
+        if (domain) await guard('domain', () => window.labs.token.setDomain(issuer, pw, domain)); else mark('domain', 'ok', 'skipped');
+        await guard('trust', () => window.labs.xrpl.setTrustline({ currency: code, issuer, limit: supply, password: pw, address: treasury }));
+        await guard('issue', () => window.labs.token.issue({ address: issuer, password: pw, distributor: treasury, currency: code, value: supply }));
+        $('ctVerifyMsg').innerHTML = `Issued <b>${supply} ${code}</b> to your Treasury<br><code class="tabular" style="font-size:11px">${treasury}</code><br><br>Check the balance + that ${code} behaves as expected. The next step locks supply <b>forever</b>.`;
+        showStep(3);
+    }
+
+    $('ctRun')?.addEventListener('click', async () => {
+        const err = $('ctErr2'); err.textContent = '';
+        $('ctRun').disabled = true; $('ctRun').textContent = 'Running…';
+        try {
+            if (!ct.issuerAddr) {
+                const r = await guard('issuer', () => window.labs.token.createIssuer((ct.name || ct.code) + ' Issuer'));
+                ct.issuerAddr = r.address;
+            }
+            if (!ct.funded) {
+                if (ct.network === 'testnet') {
+                    const r = await guard('fund', () => window.labs.token.faucet(ct.issuerAddr, ct.pw));
+                    ct.funded = true; mark('fund', 'ok', (r.balance_xrp || '') + ' XRP');
+                } else {
+                    mark('fund', 'run');
+                    $('ctIssuerAddr').textContent = ct.issuerAddr;
+                    $('ctFundBox').classList.remove('hidden');
+                    $('ctRun').textContent = 'Waiting for funding…';
+                    return;   // user funds the issuer, then clicks "I've funded it"
+                }
+            }
+            await runRest();
+        } catch (e) {
+            err.textContent = 'Stopped: ' + (e.message || 'failed') + ' — fix it and Retry.';
+            $('ctRun').disabled = false; $('ctRun').textContent = 'Retry';
+        }
+    });
+
+    $('ctCopyIssuer')?.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(ct.issuerAddr); $('ctCopyIssuer').textContent = 'Copied'; setTimeout(() => $('ctCopyIssuer').textContent = 'Copy', 1500); } catch (_) {}
+    });
+    $('ctCheckFund')?.addEventListener('click', async () => {
+        const err = $('ctErr2'); err.textContent = '';
+        $('ctCheckFund').disabled = true; $('ctCheckFund').textContent = 'Checking…';
+        let s; try { s = await window.labs.token.accountState(ct.issuerAddr); } catch (_) { s = null; }
+        $('ctCheckFund').disabled = false; $('ctCheckFund').textContent = "I've funded it →";
+        if (!(s && s.exists && s.balance_xrp > 0)) { err.textContent = 'Not funded yet — send XRP to the issuer, then retry.'; return; }
+        ct.funded = true; mark('fund', 'ok', s.balance_xrp + ' XRP'); $('ctFundBox').classList.add('hidden');
+        $('ctRun').textContent = 'Running…';
+        try { await runRest(); } catch (e) { err.textContent = 'Stopped: ' + (e.message || 'failed'); $('ctRun').disabled = false; $('ctRun').textContent = 'Retry'; }
+    });
+
+    // Verify → blackhole
+    $('ctStopHere')?.addEventListener('click', () => finishDone(false));
+    $('ctToLock')?.addEventListener('click', () => {
+        $('ctConfirmCode').textContent = ct.code; $('ctConfirmInput').value = ''; $('ctBhPw').value = '';
+        $('ctErr4').textContent = ''; $('ctBlackhole').disabled = true;
+        showStep(4); setTimeout(() => $('ctConfirmInput').focus(), 30);
+    });
+    $('ctConfirmInput')?.addEventListener('input', () => {
+        $('ctBlackhole').disabled = $('ctConfirmInput').value.trim().toUpperCase() !== String(ct.code).toUpperCase();
+    });
+    $('ctSkipBh')?.addEventListener('click', () => finishDone(false));
+    $('ctBlackhole')?.addEventListener('click', async () => {
+        const err = $('ctErr4'); err.textContent = '';
+        $('ctBlackhole').disabled = true; $('ctBlackhole').textContent = 'Locking…';
+        let r; try { r = await window.labs.token.blackhole(ct.issuerAddr, $('ctBhPw').value || ct.pw); } catch (e) { r = { ok: false, error: e?.message }; }
+        if (r && r.ok) { finishDone(true); }
+        else { $('ctBlackhole').disabled = false; $('ctBlackhole').textContent = 'Blackhole 🔒'; err.textContent = 'Failed: ' + ((r && r.error) || 'unknown') + (r && r.step ? (' @ ' + r.step) : ''); }
+    });
+
+    async function finishDone(blackholed) {
+        const { issuerAddr, treasury, code, name, supply, domain } = ct;
+        let toml = '';
+        try {
+            const t = await window.labs.token.toml({
+                issuer: issuerAddr, currencyCode: code, name, desc: (name || code) + ' on the XRP Ledger',
+                domain, weblinks: domain ? [{ url: 'https://' + domain.replace(/^https?:\/\//, ''), type: 'website' }] : [],
+            });
+            toml = (t && t.toml) || '';
+        } catch (_) {}
+        $('ctDoneMsg').innerHTML = `<b>${supply} ${code}</b> minted to your Treasury.<br>Issuer: <code class="tabular" style="font-size:10px">${issuerAddr}</code> ${blackholed
+            ? '<span style="color:var(--term-profit,#4adea1)">— blackholed, supply locked 🔒</span>'
+            : '<span class="mut">— not blackholed yet (issuer can still mint)</span>'}`;
+        $('ctDoneDomain').textContent = 'https://' + String(domain || 'your-domain.com').replace(/^https?:\/\//, '');
+        $('ctToml').value = toml;
+        showStep(5);
+    }
+    $('ctCopyToml')?.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText($('ctToml').value); $('ctCopyToml').textContent = 'Copied'; setTimeout(() => $('ctCopyToml').textContent = 'Copy toml', 1500); } catch (_) {}
+    });
+    $('ctDone')?.addEventListener('click', async () => {
+        closeCT();
+        try { if (ct.network === 'testnet') await window.labs.token.setNetwork('mainnet'); } catch (_) {}
+        if (state.activeAddress) openWallet(state.activeAddress);
+    });
+})();
