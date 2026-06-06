@@ -1662,7 +1662,7 @@ document.addEventListener('keydown', (e) => {
         // exists on mainnet → "Account not found". On testnet, faucet it; on
         // mainnet, the user must fund it first.
         const ts = await window.labs.token.accountState(treasury);
-        if (!ts || ts.exists === false) {
+        if (!ts || !ts.exists) {
             if (ct.network === 'testnet') {
                 mark('trust', 'run', 'funding Treasury on testnet…');
                 const f = await window.labs.token.faucet(treasury, pw);

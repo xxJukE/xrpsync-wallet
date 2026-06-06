@@ -81,7 +81,9 @@ async function accountState(address) {
         };
     } catch (e) {
         const msg = (e && (e.message || String(e))) || '';
-        if (/actNotFound/i.test(msg)) return { ok: true, exists: false };
+        // rippled reports an unfunded account as actNotFound, but xrpl.js surfaces
+        // it as the human string "Account not found." — match both.
+        if (/actNotFound|account not found/i.test(msg)) return { ok: true, exists: false };
         return { ok: false, error: msg || 'account_info_failed' };
     }
 }
