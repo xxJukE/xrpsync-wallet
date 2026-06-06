@@ -1657,6 +1657,21 @@ document.addEventListener('keydown', (e) => {
         await guard('defaultripple', () => window.labs.token.setFlag(issuer, pw, 'DefaultRipple'));
         await guard('nofreeze', () => window.labs.token.setFlag(issuer, pw, 'NoFreeze'));
         if (domain) await guard('domain', () => window.labs.token.setDomain(issuer, pw, domain)); else mark('domain', 'ok', 'skipped');
+        // The trustline is signed by the Treasury, so it must be ACTIVATED on the
+        // current network. A real wallet picked for a testnet rehearsal only
+        // exists on mainnet → "Account not found". On testnet, faucet it; on
+        // mainnet, the user must fund it first.
+        const ts = await window.labs.token.accountState(treasury);
+        if (!ts || ts.exists === false) {
+            if (ct.network === 'testnet') {
+                mark('trust', 'run', 'funding Treasury on testnet…');
+                const f = await window.labs.token.faucet(treasury, pw);
+                if (!f || f.ok === false) { mark('trust', 'err', (f && f.error) || 'treasury faucet failed'); throw new Error('treasury faucet failed'); }
+            } else {
+                mark('trust', 'err', 'Treasury not activated');
+                throw new Error('Your Treasury wallet isn’t activated on mainnet — send it a few XRP first, then Retry.');
+            }
+        }
         await guard('trust', () => window.labs.xrpl.setTrustline({ currency: code, issuer, limit: supply, password: pw, address: treasury }));
         await guard('issue', () => window.labs.token.issue({ address: issuer, password: pw, distributor: treasury, currency: code, value: supply }));
         $('ctVerifyMsg').innerHTML = `Issued <b>${supply} ${code}</b> to your Treasury<br><code class="tabular" style="font-size:11px">${treasury}</code><br><br>Check the balance + that ${code} behaves as expected. The next step locks supply <b>forever</b>.`;
