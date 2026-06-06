@@ -1604,7 +1604,13 @@ document.addEventListener('keydown', (e) => {
         $('createTokenModal').classList.add('is-open');
         setTimeout(() => $('ctName').focus(), 30);
     }
-    const closeCT = () => $('createTokenModal').classList.remove('is-open');
+    // Always restore mainnet on close — the XRPL connection is a shared singleton,
+    // so a rehearsal left on testnet would make every wallet in the app read as
+    // "not activated" until reset. (setNetwork is a no-op if already mainnet.)
+    const closeCT = async () => {
+        try { await window.labs.token.setNetwork('mainnet'); } catch (_) {}
+        $('createTokenModal').classList.remove('is-open');
+    };
 
     $('wCreateTokenBtn')?.addEventListener('click', openCT);
     $('ctCancel')?.addEventListener('click', closeCT);
@@ -1759,8 +1765,7 @@ document.addEventListener('keydown', (e) => {
         try { await navigator.clipboard.writeText($('ctToml').value); $('ctCopyToml').textContent = 'Copied'; setTimeout(() => $('ctCopyToml').textContent = 'Copy toml', 1500); } catch (_) {}
     });
     $('ctDone')?.addEventListener('click', async () => {
-        closeCT();
-        try { if (ct.network === 'testnet') await window.labs.token.setNetwork('mainnet'); } catch (_) {}
+        await closeCT();   // restores mainnet
         if (state.activeAddress) openWallet(state.activeAddress);
     });
 })();
