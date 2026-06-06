@@ -25,7 +25,7 @@ const KEYTAR_ACCOUNT = 'master-password';
 const LABS_API_BASE = process.env.LABS_API_BASE || 'https://xrpsync.com';
 // Bump on each release build so a running binary can be identified vs older
 // installs (logged at startup + surfaced in the wallet footer / app:info IPC).
-const BUILD_STAMP = '2026-05-27';
+const BUILD_STAMP = '2026-06-06';
 let pendingSyncTimer = null;
 
 let mainWindow = null;
