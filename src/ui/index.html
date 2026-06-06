@@ -662,11 +662,12 @@
             <div class="ttl">Minting <span id="ctRunCode" class="tabular"></span> <span id="ctRunNet" class="mut" style="font-size:10px"></span></div>
             <div id="ctChecklist" style="border:1px solid var(--term-line,#1f2731);border-radius:4px;background:#0a0e14;padding:10px 12px;margin:10px 0;font-size:11px;line-height:1.9"></div>
             <div id="ctFundBox" class="hidden" style="border:1px solid var(--term-warn,#f7c948);border-radius:4px;background:#0a0e14;padding:10px 12px;margin-bottom:10px">
-                <div class="mut" style="font-size:10px;margin-bottom:6px">Fund the issuer — send ~5 XRP to this address (Transfer from your Treasury works), then continue:</div>
+                <div class="mut" style="font-size:10px;margin-bottom:6px">Fund the issuer with ~2 XRP. Easiest: send it straight from your Treasury below. (Or send ~2 XRP to this address from anywhere, then "I've funded it".)</div>
                 <code id="ctIssuerAddr" class="tabular" style="display:block;font-size:11px;color:var(--term-fg);word-break:break-all;margin-bottom:8px"></code>
                 <div class="row" style="gap:8px">
-                    <button class="btn sm ghost" id="ctCopyIssuer" type="button">Copy</button>
-                    <button class="btn sm primary" id="ctCheckFund" type="button">I've funded it →</button>
+                    <button class="btn sm primary" id="ctFundFromTreasury" type="button">Fund 2 XRP from Treasury</button>
+                    <button class="btn sm ghost" id="ctCopyIssuer" type="button">Copy address</button>
+                    <button class="btn sm ghost" id="ctCheckFund" type="button">I've funded it →</button>
                 </div>
             </div>
             <div class="row" style="gap:8px">

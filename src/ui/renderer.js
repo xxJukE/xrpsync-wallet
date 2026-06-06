@@ -1714,15 +1714,45 @@ document.addEventListener('keydown', (e) => {
     $('ctCopyIssuer')?.addEventListener('click', async () => {
         try { await navigator.clipboard.writeText(ct.issuerAddr); $('ctCopyIssuer').textContent = 'Copied'; setTimeout(() => $('ctCopyIssuer').textContent = 'Copy', 1500); } catch (_) {}
     });
+    // Shared: mark the issuer funded + continue the mint.
+    async function proceedAfterFund(detail) {
+        ct.funded = true; mark('fund', 'ok', detail); $('ctFundBox').classList.add('hidden');
+        $('ctRun').textContent = 'Running…';
+        try { await runRest(); } catch (e) { $('ctErr2').textContent = 'Stopped: ' + (e.message || 'failed'); $('ctRun').disabled = false; $('ctRun').textContent = 'Retry'; }
+    }
     $('ctCheckFund')?.addEventListener('click', async () => {
         const err = $('ctErr2'); err.textContent = '';
         $('ctCheckFund').disabled = true; $('ctCheckFund').textContent = 'Checking…';
         let s; try { s = await window.labs.token.accountState(ct.issuerAddr); } catch (_) { s = null; }
         $('ctCheckFund').disabled = false; $('ctCheckFund').textContent = "I've funded it →";
         if (!(s && s.exists && s.balance_xrp > 0)) { err.textContent = 'Not funded yet — send XRP to the issuer, then retry.'; return; }
-        ct.funded = true; mark('fund', 'ok', s.balance_xrp + ' XRP'); $('ctFundBox').classList.add('hidden');
-        $('ctRun').textContent = 'Running…';
-        try { await runRest(); } catch (e) { err.textContent = 'Stopped: ' + (e.message || 'failed'); $('ctRun').disabled = false; $('ctRun').textContent = 'Retry'; }
+        await proceedAfterFund(s.balance_xrp + ' XRP');
+    });
+    // One-click: send 2 XRP from the chosen Treasury to the fresh issuer, then continue.
+    $('ctFundFromTreasury')?.addEventListener('click', async () => {
+        const err = $('ctErr2'); err.textContent = '';
+        const btn = $('ctFundFromTreasury'); btn.disabled = true; btn.textContent = 'Sending 2 XRP…';
+        try {
+            const tx = { TransactionType: 'Payment', Account: ct.treasury, Destination: ct.issuerAddr, Amount: '2000000' }; // 2 XRP in drops
+            const r = await window.labs.xrpl.signAndSubmit(ct.treasury, tx, ct.pw);
+            const eng = r?.result?.engine_result;
+            if (eng && eng !== 'tesSUCCESS' && eng !== 'terQUEUED') {
+                err.textContent = 'Funding failed: ' + eng; btn.disabled = false; btn.textContent = 'Fund 2 XRP from Treasury'; return;
+            }
+            btn.textContent = 'Confirming…';
+            let funded = false;
+            for (let i = 0; i < 20; i++) {
+                await new Promise((res) => setTimeout(res, 2000));
+                let s; try { s = await window.labs.token.accountState(ct.issuerAddr); } catch (_) { s = null; }
+                if (s && s.exists && s.balance_xrp > 0) { funded = true; break; }
+            }
+            btn.disabled = false; btn.textContent = 'Fund 2 XRP from Treasury';
+            if (!funded) { err.textContent = 'Sent — still confirming. Give it a moment, then "I\'ve funded it".'; return; }
+            await proceedAfterFund('2 XRP from Treasury');
+        } catch (e) {
+            err.textContent = 'Funding error: ' + (e?.message || 'failed');
+            btn.disabled = false; btn.textContent = 'Fund 2 XRP from Treasury';
+        }
     });
 
     // Verify → blackhole
