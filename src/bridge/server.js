@@ -18,6 +18,26 @@ const log  = (...a) => console.log('[bridge]',  ...a);
 const warn = (...a) => console.warn('[bridge]', ...a);
 const err  = (...a) => console.error('[bridge]', ...a);
 
+// Origin allow-list. Loopback-only is not enough: any page in the user's browser
+// can reach 127.0.0.1, and the browser sets the Origin header honestly (JS can't
+// forge it on a WebSocket). So we additionally require a recognized Origin —
+// otherwise a malicious site could connect and spoof the `source` field to ride
+// the user's xrpsync.com auto-sign rules. Override with BRIDGE_ALLOWED_ORIGINS
+// (comma-separated). localhost/127.0.0.1 (any scheme/port) is always allowed for dev.
+const ALLOWED_ORIGINS = (process.env.BRIDGE_ALLOWED_ORIGINS ||
+    'https://xrpsync.com,https://www.xrpsync.com')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+
+function originAllowed(origin) {
+    if (!origin) return false;                       // browsers always send one; reject blanks
+    if (ALLOWED_ORIGINS.includes(origin)) return true;
+    try {
+        const h = new URL(origin).hostname;
+        if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return true; // dev
+    } catch (_) { /* malformed origin → reject */ }
+    return false;
+}
+
 let wss = null;
 let listening = false;
 let onSignRequestCb = null;
@@ -37,9 +57,11 @@ function start({ port = 17760, onSignRequest, getWalletInfoSync, getBalances }) 
         port,
         verifyClient: (info, done) => {
             const ip = info.req.socket.remoteAddress;
-            const ok = (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1');
-            log('verifyClient: ip=' + ip + ' allow=' + ok + ' origin=' + (info.origin || '—'));
-            if (ok) return done(true);
+            const ipOk = (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1');
+            const originOk = originAllowed(info.origin);
+            log('verifyClient: ip=' + ip + ' ipOk=' + ipOk + ' originOk=' + originOk + ' origin=' + (info.origin || '—'));
+            if (ipOk && originOk) return done(true);
+            if (ipOk && !originOk) warn('rejected: bad origin ' + (info.origin || '(none)') + ' — set BRIDGE_ALLOWED_ORIGINS if this is legit');
             return done(false, 403, 'Forbidden');
         },
     });

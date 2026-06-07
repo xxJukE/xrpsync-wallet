@@ -229,7 +229,16 @@ function registerIpc() {
     // that hit "Set password" before the auto-generation flow shipped; new UI
     // routes through lock:first-launch-setup instead.
     ipcMain.handle('lock:set-master', async (_e, password) => {
-        await WalletStore.setMasterPassword(password);
+        if (WalletStore.hasMasterPassword()) {
+            return { ok: false, error: 'master_already_set' };
+        }
+        // Custom password is opt-in (default flow auto-generates a strong one), so
+        // enforce a minimum strength bar: ≥12 chars and ≥3 character classes.
+        const pw = String(password || '');
+        if (pw.length < 12) return { ok: false, error: 'too_short' };
+        const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(pw)).length;
+        if (classes < 3) return { ok: false, error: 'too_weak' };
+        await WalletStore.setMasterPassword(pw);
         markUnlocked();
         return { ok: true };
     });
@@ -431,9 +440,12 @@ function registerIpc() {
         ensureUnlocked();
         return WalletStore.revealSecret(address, password);
     });
-    ipcMain.handle('wallet:delete', async (_e, { address, confirm }) => {
+    ipcMain.handle('wallet:delete', async (_e, { address, password, confirm }) => {
         ensureUnlocked();
         if (confirm !== 'DELETE') throw new Error('confirmation_required');
+        // Removing key material requires the master password — verify before delete.
+        const v = await WalletStore.unlock(password);
+        if (!v || !v.ok) return { ok: false, error: 'wrong_password' };
         WalletStore.deleteWallet(address);
         scheduleAutoSync();
         return { ok: true };

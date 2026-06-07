@@ -46,7 +46,7 @@ contextBridge.exposeInMainWorld('labs', {
         importWallet:   (kind, value, label)  => invoke('wallet:import', { kind, value, label }),
         rename:         (address, label)      => invoke('wallet:rename', { address, label }),
         revealSecret:   (address, password)   => invoke('wallet:reveal-secret', { address, password }),
-        deleteWallet:   (address, confirm)    => invoke('wallet:delete', { address, confirm }),
+        deleteWallet:   (address, password)   => invoke('wallet:delete', { address, password, confirm: 'DELETE' }),
     },
 
     // ── Backup / restore ──

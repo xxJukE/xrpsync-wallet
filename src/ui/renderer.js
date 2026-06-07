@@ -39,37 +39,70 @@ async function startFirstLaunchFlow() {
     $('lockCardStd').classList.add('hidden');
     $('lockCardGen').classList.remove('hidden');
     $('lockOverlay').classList.add('is-open');
+    // Show the choice first — auto-generate (recommended) or set a custom password.
+    // Nothing is generated until the user picks.
+    $('genChoice').classList.remove('hidden');
+    $('genGenerated').classList.add('hidden');
+    $('genCustom').classList.add('hidden');
+    $('genChoiceAuto').onclick = runAutoGenerate;
+    $('genChoiceCustom').onclick = showCustomPasswordForm;
+}
+
+function closeSetup() {
+    $('lockOverlay').classList.remove('is-open');
+    $('lockCardGen').classList.add('hidden');
+    $('lockCardStd').classList.remove('hidden');
+}
+
+// Recommended path — strong auto-generated master password (existing flow).
+async function runAutoGenerate() {
+    $('genChoice').classList.add('hidden');
+    $('genGenerated').classList.remove('hidden');
     let r;
     try { r = await window.labs.lock.firstLaunchSetup(); }
     catch (e) { $('genPwErr').textContent = String(e?.message || e); return; }
-    if (!r.ok) {
-        // Edge case — master appeared between status() and here. Fall back to standard unlock.
-        $('lockCardGen').classList.add('hidden');
-        $('lockCardStd').classList.remove('hidden');
-        return;
-    }
+    if (!r.ok) { closeSetup(); return; }   // master appeared between status() + here
     const pw = r.password;
     $('genPwOut').textContent = pw;
 
-    const updateCta = () => {
-        $('genPwContinue').disabled = !($('genPwAck1').checked && $('genPwAck2').checked);
-    };
-    $('genPwAck1').addEventListener('change', updateCta);
-    $('genPwAck2').addEventListener('change', updateCta);
-
-    $('genPwCopy').addEventListener('click', async () => {
+    const updateCta = () => { $('genPwContinue').disabled = !($('genPwAck1').checked && $('genPwAck2').checked); };
+    $('genPwAck1').onchange = updateCta;
+    $('genPwAck2').onchange = updateCta;
+    $('genPwCopy').onclick = async () => {
         try { await navigator.clipboard.writeText(pw); $('genPwCopy').textContent = 'COPIED'; setTimeout(() => $('genPwCopy').textContent = 'COPY', 1500); } catch (_) {}
-    });
-
-    $('genPwContinue').addEventListener('click', async () => {
+    };
+    $('genPwContinue').onclick = async () => {
         if ($('genPwContinue').disabled) return;
-        // Wipe the displayed password from DOM before closing — no need to keep it visible.
-        $('genPwOut').textContent = '••••••••••••••••••••••••';
-        $('lockOverlay').classList.remove('is-open');
-        $('lockCardGen').classList.add('hidden');
-        $('lockCardStd').classList.remove('hidden');
+        $('genPwOut').textContent = '••••••••••••••••••••••••';   // wipe from DOM
+        closeSetup();
         await refreshAll();
-    });
+    };
+}
+
+// Opt-in path — user sets their own password (strength enforced in main).
+function showCustomPasswordForm() {
+    $('genChoice').classList.add('hidden');
+    $('genCustom').classList.remove('hidden');
+    const pw = $('genCustomPw'), pw2 = $('genCustomPw2'), ack = $('genCustomAck'),
+          submit = $('genCustomSubmit'), errEl = $('genCustomErr');
+    pw.value = ''; pw2.value = ''; ack.checked = false; errEl.textContent = '';
+    submit.disabled = true; submit.textContent = 'Set password';
+    const update = () => { submit.disabled = !(pw.value.length >= 12 && pw.value === pw2.value && ack.checked); };
+    pw.oninput = update; pw2.oninput = update; ack.onchange = update;
+    $('genCustomBack').onclick = () => { $('genCustom').classList.add('hidden'); $('genChoice').classList.remove('hidden'); };
+    submit.onclick = async () => {
+        if (submit.disabled) return;
+        errEl.textContent = '';
+        if (pw.value !== pw2.value) { errEl.textContent = 'Passwords do not match.'; return; }
+        submit.disabled = true; submit.textContent = 'Setting…';
+        let r; try { r = await window.labs.lock.setMaster(pw.value); } catch (e) { r = { ok: false, error: e?.message }; }
+        if (r && r.ok) { pw.value = ''; pw2.value = ''; closeSetup(); await refreshAll(); return; }
+        submit.disabled = false; submit.textContent = 'Set password';
+        errEl.textContent = r?.error === 'too_short' ? 'Use at least 12 characters.'
+            : r?.error === 'too_weak' ? 'Use at least 3 of: lower-case, upper-case, numbers, symbols.'
+            : r?.error === 'master_already_set' ? 'A master password is already set.'
+            : ('Could not set password: ' + (r?.error || 'unknown'));
+    };
 }
 
 $('lockSubmit').addEventListener('click', async () => {
@@ -511,9 +544,19 @@ $('wRevealBtn').addEventListener('click', async () => {
 
 $('wDeleteBtn').addEventListener('click', async () => {
     if (!state.activeAddress) return;
-    const conf = await promptModal({ title: 'Delete Wallet', message: 'Type DELETE to remove this wallet from the device:', type: 'text', placeholder: 'DELETE', okText: 'Delete' });
-    if (conf !== 'DELETE') return;
-    await window.labs.wallet.deleteWallet(state.activeAddress, 'DELETE');
+    // Deleting removes this wallet's key material from the device — gate it on the
+    // master password (verified in main before anything is removed).
+    const pw = await promptModal({
+        title: 'Delete Wallet',
+        message: 'This permanently removes this wallet\'s keys from the device and cannot be undone. Make sure you have your seed backed up.\n\nEnter your master password to confirm:',
+        type: 'password', placeholder: 'master password', okText: 'Delete',
+    });
+    if (!pw) return;
+    const r = await window.labs.wallet.deleteWallet(state.activeAddress, pw);
+    if (r && r.ok === false) {
+        await infoModal({ title: 'Delete failed', message: r.error === 'wrong_password' ? 'Wrong master password — nothing was deleted.' : ('Could not delete: ' + (r.error || 'unknown')) });
+        return;
+    }
     state.activeAddress = null;
     await refreshWallets();
     showPane('welcome');

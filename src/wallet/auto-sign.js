@@ -30,6 +30,7 @@ const DEFAULT_RULES = {
     maxPerDay: 500,                              // XRP per UTC day
     maxPerDayRLUSD: 1000,                        // RLUSD per UTC day
     allowedPairs: ['XRP/RLUSD'],                 // for OfferCreate
+    allowedDestinations: [],                     // for Payment — empty = always prompt
     networkMainnetOnly: true,
     notifyOnSign: true,
     dailySummary: true,
@@ -90,6 +91,17 @@ function canAutoSign(site, transaction) {
         const pair = pairLabel(transaction);
         if (!pair || !rules.allowedPairs.includes(pair)) {
             return { allowed: false, reason: `pair_not_allowed:${pair || 'unknown'}` };
+        }
+    }
+
+    // Payments send value OUT to an address — riskier than trades. Auto-sign a
+    // Payment only to an allow-listed destination the user pre-approved. An empty
+    // allow-list means Payments are never auto-signed (always prompt).
+    if (txType === 'Payment') {
+        const dest = transaction?.Destination;
+        const allow = Array.isArray(rules.allowedDestinations) ? rules.allowedDestinations : [];
+        if (!dest || !allow.includes(dest)) {
+            return { allowed: false, reason: 'payment_destination_not_allowed' };
         }
     }
 
