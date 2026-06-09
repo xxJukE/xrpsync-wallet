@@ -11,7 +11,7 @@ let _req = null;
 
 window.labs.approval.on((req) => {
     _req = req;
-    document.getElementById('apvSite').textContent = req.source || '—';
+    document.getElementById('apvSite').textContent = req.site || req.source || '—';
     document.getElementById('apvType').textContent = req.transaction?.TransactionType || '—';
     document.getElementById('apvTxJson').textContent = JSON.stringify(req.transaction, null, 2);
 
@@ -23,7 +23,7 @@ window.labs.approval.on((req) => {
         kv.appendChild(ke); kv.appendChild(ve);
     };
     add('Description', req.description || '—');
-    add('Source', req.source || '—');
+    add('Source', req.site || req.source || '—');
     add('Account', req.transaction?.Account || '—');
     add('Type', req.transaction?.TransactionType || '—');
     add('Urgency', req.urgency || 'normal');

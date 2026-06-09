@@ -14,6 +14,11 @@
 
 const Store = require('./storage');
 
+// Normalize a site key so "www.xrpsync.com" and "xrpsync.com" share ONE rule
+// (and one daily cap). Without this, a rule added for one host silently misses
+// the other.
+function normSite(s) { return String(s || '').replace(/^www\./i, '').toLowerCase(); }
+
 const NEVER_AUTO_TYPES = new Set([
     'AccountDelete',
     'SetRegularKey',
@@ -41,21 +46,21 @@ function getAllRules() { return Store.getAutoSignRules(); }
 
 function getRules(site) {
     const all = Store.getAutoSignRules();
-    return all[site] || null;
+    return all[normSite(site)] || null;
 }
 
 function setRules(site, rules) {
     if (!site) throw new Error('site_required');
     const merged = { ...DEFAULT_RULES, ...(rules || {}) };
     const all = Store.getAutoSignRules();
-    all[site] = merged;
+    all[normSite(site)] = merged;
     Store.setAutoSignRules(all);
     return merged;
 }
 
 function removeRules(site) {
     const all = Store.getAutoSignRules();
-    delete all[site];
+    delete all[normSite(site)];
     Store.setAutoSignRules(all);
 }
 
@@ -64,10 +69,12 @@ function defaultRules() { return { ...DEFAULT_RULES }; }
 // ── Decision ────────────────────────────────────────────────────────────────
 function canAutoSign(site, transaction) {
     const rules = getRules(site);
-    // Time-boxed: auto-sign only inside an armed window; it auto-expires to OFF so
-    // an unattended wallet never keeps signing. (Caps / pairs / hard-blocks below
-    // still apply within the window.)
-    if (!rules || !rules.enabledUntil || Date.now() >= rules.enabledUntil) {
+    // Auto-sign is live if the site is persistently ENABLED (rules panel toggle)
+    // OR a time-boxed session is still active (armed from the approval modal — it
+    // auto-expires to OFF). Either way, the caps / pairs / hard-blocks below apply.
+    const sessionActive = rules && rules.enabledUntil && Date.now() < rules.enabledUntil;
+    const persistOn = rules && rules.enabled === true;
+    if (!rules || (!persistOn && !sessionActive)) {
         return { allowed: false, reason: 'auto_sign_disabled' };
     }
 
@@ -154,13 +161,13 @@ function getTodayKey() { return new Date().toISOString().slice(0, 10); }
 
 function getTodayTotals(site) {
     const all = Store.getAutoSignDailyTotals();
-    const key = `${site}::${getTodayKey()}`;
+    const key = `${normSite(site)}::${getTodayKey()}`;
     if (!all[key]) all[key] = { xrp: 0, rlusd: 0 };
     return all[key];
 }
 function setTodayTotals(site, totals) {
     const all = Store.getAutoSignDailyTotals();
-    const key = `${site}::${getTodayKey()}`;
+    const key = `${normSite(site)}::${getTodayKey()}`;
     all[key] = totals;
     Store.setAutoSignDailyTotals(all);
 }
@@ -220,14 +227,15 @@ function armSession(site, durationMs, overrides) {
     merged.allowedTypes = ['OfferCreate'];   // hard rule: a timed session auto-signs TRADES only — never a Payment/transfer
     merged.enabledUntil = dur > 0 ? Date.now() + dur : 0;
     const all = Store.getAutoSignRules();
-    all[site] = merged;
+    all[normSite(site)] = merged;
     Store.setAutoSignRules(all);
     return merged;
 }
 
 function disarm(site) {
     const all = Store.getAutoSignRules();
-    if (all[site]) { all[site].enabledUntil = 0; Store.setAutoSignRules(all); }
+    const key = normSite(site);
+    if (all[key]) { all[key].enabledUntil = 0; Store.setAutoSignRules(all); }
 }
 
 function sessionStatus(site) {
