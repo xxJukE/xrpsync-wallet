@@ -66,7 +66,7 @@ document.querySelectorAll('#apvAutoTimers .as-t').forEach((btn) => {
             await window.labs.approval.respond({
                 id: _req.id, approved: true, password: pw,
                 allWalletsAddress: _req.transaction?.Account,
-                autoSign: true, durationMs: ms, site: _req.source,
+                autoSign: true, durationMs: ms, site: _req.site || _req.source,
             });
             window.close();
         } catch (err) {

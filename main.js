@@ -884,7 +884,7 @@ async function onSignRequest(req, source) {
     // Free (or logged-out) falls through to manual approval — never silently signs.
     if (verdict.allowed && !isLocked && !accountAllowsAutoSign()) {
         AutoSign.logAutoSign(site, req.transaction, { result: 'auto_sign_blocked_no_pro' });
-        return showApprovalWindow({ ...req, source });
+        return showApprovalWindow({ ...req, source, site });
     }
 
     if (verdict.allowed && !isLocked) {
@@ -910,7 +910,7 @@ async function onSignRequest(req, source) {
     }
 
     // Manual approval — show approval window
-    showApprovalWindow({ ...req, source });
+    showApprovalWindow({ ...req, source, site });
 }
 
 function showApprovalWindow(req) {
