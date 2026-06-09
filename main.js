@@ -25,7 +25,7 @@ const KEYTAR_ACCOUNT = 'master-password';
 const LABS_API_BASE = process.env.LABS_API_BASE || 'https://xrpsync.com';
 // Bump on each release build so a running binary can be identified vs older
 // installs (logged at startup + surfaced in the wallet footer / app:info IPC).
-const BUILD_STAMP = '2026-06-06';
+const BUILD_STAMP = '2026-06-09';
 let pendingSyncTimer = null;
 
 let mainWindow = null;
@@ -909,6 +909,13 @@ async function onSignRequest(req, source) {
         }
     }
 
+    // Diagnostic: when canAutoSign said NO, log the reason so RECENT AUTO-SIGNS
+    // shows it (e.g. "manual:auto_sign_disabled" = no matching/active rule for the
+    // site, "manual:pair_not_allowed", etc.). Otherwise a non-match leaves the
+    // panel blank and the failure is undebuggable.
+    if (!verdict.allowed) {
+        AutoSign.logAutoSign(site, req.transaction, { result: 'manual:' + (verdict.reason || 'disabled') });
+    }
     // Manual approval — show approval window
     showApprovalWindow({ ...req, source, site });
 }
