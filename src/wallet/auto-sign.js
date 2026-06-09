@@ -26,7 +26,7 @@ const NEVER_AUTO_TYPES = new Set([
 const DEFAULT_RULES = {
     enabled: false,                              // legacy persistent flag (kept for back-compat)
     enabledUntil: 0,                             // ms epoch — time-boxed session expiry (0 = OFF)
-    allowedTypes: ['OfferCreate', 'Payment'],
+    allowedTypes: ['OfferCreate'],               // auto-sign = terminal BUY/SELL trades ONLY — never Payments/transfers
     maxPerTransaction: 100,                      // XRP per single tx
     maxPerDay: 500,                              // XRP per UTC day
     maxPerDayRLUSD: 1000,                        // RLUSD per UTC day
@@ -217,6 +217,7 @@ function armSession(site, durationMs, overrides) {
     const dur = Math.max(0, Number(durationMs) || 0);
     const existing = getRules(site) || {};
     const merged = { ...DEFAULT_RULES, ...existing, ...(overrides || {}) };
+    merged.allowedTypes = ['OfferCreate'];   // hard rule: a timed session auto-signs TRADES only — never a Payment/transfer
     merged.enabledUntil = dur > 0 ? Date.now() + dur : 0;
     const all = Store.getAutoSignRules();
     all[site] = merged;
