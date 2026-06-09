@@ -52,3 +52,25 @@ document.getElementById('apvApprove').addEventListener('click', async () => {
 document.getElementById('apvPw').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('apvApprove').click();
 });
+
+// Auto-sign timer buttons: approve THIS tx and arm a time-boxed auto-sign window
+// for this site. After the window passes, auto-sign turns OFF automatically.
+document.querySelectorAll('#apvAutoTimers .as-t').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+        if (!_req) return;
+        const pw = document.getElementById('apvPw').value;
+        if (!pw) { document.getElementById('apvErr').textContent = 'enter master password to arm auto-sign'; return; }
+        const ms = Number(btn.dataset.ms) || 0;
+        document.getElementById('apvErr').textContent = '';
+        try {
+            await window.labs.approval.respond({
+                id: _req.id, approved: true, password: pw,
+                allWalletsAddress: _req.transaction?.Account,
+                autoSign: true, durationMs: ms, site: _req.source,
+            });
+            window.close();
+        } catch (err) {
+            document.getElementById('apvErr').textContent = String(err.message || err);
+        }
+    });
+});

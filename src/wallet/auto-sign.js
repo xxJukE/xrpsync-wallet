@@ -24,7 +24,8 @@ const NEVER_AUTO_TYPES = new Set([
 ]);
 
 const DEFAULT_RULES = {
-    enabled: false,                              // user must explicitly enable per site
+    enabled: false,                              // legacy persistent flag (kept for back-compat)
+    enabledUntil: 0,                             // ms epoch — time-boxed session expiry (0 = OFF)
     allowedTypes: ['OfferCreate', 'Payment'],
     maxPerTransaction: 100,                      // XRP per single tx
     maxPerDay: 500,                              // XRP per UTC day
@@ -63,7 +64,12 @@ function defaultRules() { return { ...DEFAULT_RULES }; }
 // ── Decision ────────────────────────────────────────────────────────────────
 function canAutoSign(site, transaction) {
     const rules = getRules(site);
-    if (!rules || !rules.enabled) return { allowed: false, reason: 'auto_sign_disabled' };
+    // Time-boxed: auto-sign only inside an armed window; it auto-expires to OFF so
+    // an unattended wallet never keeps signing. (Caps / pairs / hard-blocks below
+    // still apply within the window.)
+    if (!rules || !rules.enabledUntil || Date.now() >= rules.enabledUntil) {
+        return { allowed: false, reason: 'auto_sign_disabled' };
+    }
 
     const txType = transaction?.TransactionType;
     if (!txType) return { allowed: false, reason: 'missing_tx_type' };
@@ -201,6 +207,35 @@ function currencyOf(v) {
     return null;
 }
 
+// ── Time-boxed session ───────────────────────────────────────────────────────
+// Auto-sign is OFF by default. The user explicitly ARMS it for a chosen window
+// (5m … 3d); it auto-expires to OFF when the window passes. Existing caps,
+// allowed pairs, allowed Payment destinations, and hard-blocked types all still
+// apply WITHIN the window — the timer only bounds *when* auto-sign is live.
+function armSession(site, durationMs, overrides) {
+    if (!site) throw new Error('site_required');
+    const dur = Math.max(0, Number(durationMs) || 0);
+    const existing = getRules(site) || {};
+    const merged = { ...DEFAULT_RULES, ...existing, ...(overrides || {}) };
+    merged.enabledUntil = dur > 0 ? Date.now() + dur : 0;
+    const all = Store.getAutoSignRules();
+    all[site] = merged;
+    Store.setAutoSignRules(all);
+    return merged;
+}
+
+function disarm(site) {
+    const all = Store.getAutoSignRules();
+    if (all[site]) { all[site].enabledUntil = 0; Store.setAutoSignRules(all); }
+}
+
+function sessionStatus(site) {
+    const rules = getRules(site);
+    const until = rules?.enabledUntil || 0;
+    const remainingMs = Math.max(0, until - Date.now());
+    return { active: remainingMs > 0, enabledUntil: until, remainingMs };
+}
+
 module.exports = {
     canAutoSign,
     logAutoSign,
@@ -211,4 +246,7 @@ module.exports = {
     defaultRules,
     recentLog,
     resetDailyTotals,
+    armSession,
+    disarm,
+    sessionStatus,
 };

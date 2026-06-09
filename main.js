@@ -686,7 +686,14 @@ function registerIpc() {
     });
 
     // Approval flow — UI calls back into main with the user's decision
-    ipcMain.handle('approval:respond', async (_e, { id, approved, password, allWalletsAddress }) => {
+    ipcMain.handle('approval:respond', async (_e, { id, approved, password, allWalletsAddress, autoSign, durationMs, site }) => {
+        // Time-boxed auto-sign: the user picked a window in the approval modal. Arm
+        // the session BEFORE signing this tx, so this one + any others from this
+        // site within the window auto-sign. Still gated by the Pro entitlement +
+        // caps + allowed types/pairs + hard-blocks (armSession only sets the timer).
+        if (approved && autoSign && site && Number(durationMs) > 0) {
+            try { AutoSign.armSession(site, Number(durationMs)); } catch (_) {}
+        }
         await BridgeProtocol.handleApproval({
             id,
             approved,
