@@ -99,10 +99,13 @@ function canAutoSign(site, transaction) {
         return { allowed: false, reason: `exceeds_daily_rlusd:${today.rlusd + rlusd}>${rules.maxPerDayRLUSD}` };
     }
 
-    // Allowed pairs (OfferCreate only)
+    // Allowed pairs (OfferCreate only). A market is symmetric: arming "XRP/RLUSD"
+    // permits BOTH a buy and a sell of that market. `pairLabel` is
+    // TakerGets/TakerPays, which flips between the two sides, so match either
+    // orientation against the allow-list.
     if (txType === 'OfferCreate') {
         const pair = pairLabel(transaction);
-        if (!pair || !rules.allowedPairs.includes(pair)) {
+        if (!pair || !pairAllowed(pair, rules.allowedPairs)) {
             return { allowed: false, reason: `pair_not_allowed:${pair || 'unknown'}` };
         }
     }
@@ -193,9 +196,24 @@ function extractRlusdAmount(tx) {
 
 function isRlusd(currency, issuer) {
     if (!currency || !issuer) return false;
-    // Hex-encoded RLUSD or canonical 'RLUSD'
+    // Canonical 'RLUSD' (standard ≤3-char path never applies here, but allow it)
+    // OR the on-ledger hex form. XRPL encodes any non-standard (>3 char) currency
+    // as a 160-bit code = 40 hex chars, zero-padded on the RIGHT. "RLUSD" =
+    // 524C555344, padded → 524C555344000000000000000000000000000000. We tolerate
+    // the unpadded 10-char form too in case a caller hands us a trimmed code.
     const c = String(currency).toUpperCase();
-    return c === 'RLUSD' || c === '524C555344' /* "RLUSD" hex padded length is 40 chars */;
+    return c === 'RLUSD'
+        || c === '524C555344'
+        || c === '524C555344000000000000000000000000000000';
+}
+
+// Match a TakerGets/TakerPays pair label against the allow-list, ignoring side
+// (a market is symmetric — "XRP/RLUSD" covers "RLUSD/XRP" too).
+function pairAllowed(pair, allowed) {
+    if (!pair || !Array.isArray(allowed)) return false;
+    const [a, b] = pair.split('/');
+    const reversed = `${b}/${a}`;
+    return allowed.includes(pair) || allowed.includes(reversed);
 }
 
 function pairLabel(tx) {
