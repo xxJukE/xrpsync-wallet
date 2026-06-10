@@ -806,6 +806,7 @@ function startBridges() {
         onSignRequest: (req) => onSignRequest(req, 'local'),
         getWalletInfoSync: getWalletInfoSync,
         getBalances:        getWalletBalances,
+        getAutoSignStatus:  getAutoSignStatus,
     });
 
     // Remote relay (wallet → XRPSync server) — only connects when configured
@@ -871,6 +872,28 @@ function accountAllowsAutoSign() {
         if (typeof flag === 'boolean') return flag;
         return !!u.is_pro; // back-compat for payloads predating entitlements
     } catch (_) { return false; }
+}
+
+// Auto-sign arming state for a site — read by the bridge's auto_sign_status
+// query so the website's bot executor can HOLD when the time-boxed session
+// lapsed (instead of spraying manual approval prompts). `armed` mirrors
+// canAutoSign's activation check exactly: legacy persistent enabled flag OR a
+// live timed session. remaining_ms = -1 means persistent (no expiry).
+function getAutoSignStatus(site) {
+    let armed = false, remaining = 0;
+    try {
+        const rules = AutoSign.getRules(site);
+        const sess  = AutoSign.sessionStatus(site);
+        const persistent = !!(rules && rules.enabled === true);
+        armed = persistent || sess.active;
+        remaining = persistent ? -1 : sess.remainingMs;
+    } catch (_) { /* default: not armed */ }
+    return {
+        armed,
+        remaining_ms: remaining,
+        account_allowed: accountAllowsAutoSign(),
+        wallet_unlocked: !isLocked,
+    };
 }
 
 async function onSignRequest(req, source) {

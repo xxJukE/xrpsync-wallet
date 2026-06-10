@@ -43,12 +43,14 @@ let listening = false;
 let onSignRequestCb = null;
 let getWalletInfoSyncCb = null;   // () => { address, locked } | null   — must NOT throw, must NOT block
 let getBalancesCb = null;         // async (address) => { XRP, RLUSD }  — may throw, may take seconds
+let getAutoSignStatusCb = null;   // (site) => { armed, remaining_ms, account_allowed, wallet_unlocked } — sync, must NOT throw
 
-function start({ port = 17760, onSignRequest, getWalletInfoSync, getBalances }) {
+function start({ port = 17760, onSignRequest, getWalletInfoSync, getBalances, getAutoSignStatus }) {
     if (wss) { log('start: already running'); return; }
     onSignRequestCb = onSignRequest;
     getWalletInfoSyncCb = getWalletInfoSync;
     getBalancesCb = getBalances;
+    getAutoSignStatusCb = getAutoSignStatus;
     log('start: opening WSS on 127.0.0.1:' + port +
         ' · sync=' + (typeof getWalletInfoSyncCb) +
         ' · balances=' + (typeof getBalancesCb));
@@ -196,6 +198,24 @@ function onConnection(ws) {
                 trySend(ws, response, 'sign_response id=' + response.id);
             });
             if (typeof onSignRequestCb === 'function') onSignRequestCb(msg);
+            return;
+        }
+        // ADDITIVE (bridge v1, wallet 1.0.6): auto-sign session status query.
+        // Lets the website's bot executor HOLD instead of firing sign requests
+        // that would spray manual approval prompts when the session lapsed.
+        // Read-only — reveals arming state only, never rules or balances.
+        if (msg.type === 'auto_sign_status') {
+            let status = { armed: false, remaining_ms: 0, account_allowed: false, wallet_unlocked: false };
+            if (typeof getAutoSignStatusCb === 'function') {
+                try { status = getAutoSignStatusCb(msg.source || 'unknown') || status; }
+                catch (e) { warn('getAutoSignStatus threw:', e?.message || e); }
+            }
+            trySend(ws, {
+                type: 'auto_sign_status',
+                id: msg.id || null,
+                ...status,
+                timestamp: new Date().toISOString(),
+            }, 'auto_sign_status');
             return;
         }
     });
