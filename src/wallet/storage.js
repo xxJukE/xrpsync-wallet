@@ -3,7 +3,10 @@
 // Layout in electron-store (`labs-wallet-data.json`):
 //   master:  { kdf, salt, verify_iv, verify_ct, params? }
 //             kdf = 'argon2id' (v2, current) | 'pbkdf2' (v1, legacy — auto-migrated)
-//   wallets: { [address]: { label, classicAddress, iv, ct, addedAt } }
+//   wallets: { [address]: { label, classicAddress, iv, ct, addedAt,
+//              desktopOnly?, pairing?: { regularKeyAddress, pairedAt } } }
+//              desktopOnly  — never offered to the phone-pairing wizard
+//              pairing      — phone regular-key PUBLIC address only, no secrets
 //   prefs:   { lock_ms, allow_auto_sign_unattended, ... }
 //
 // Encryption: AES-256-GCM. Key derived from the master password + a per-install salt.
@@ -250,6 +253,9 @@ async function migrateMasterToArgon2id(password) {
             iv: iv.toString('base64'),
             ct: Buffer.concat([ct, tag]).toString('base64'),
             addedAt: w.addedAt,
+            // Non-secret metadata must survive the re-key.
+            desktopOnly: !!w.desktopOnly,
+            pairing: w.pairing || null,
         };
     }
 
@@ -326,7 +332,35 @@ function listWallets() {
         label: w.label,
         addedAt: w.addedAt,
         publicKey: w.publicKey || null,
+        desktopOnly: !!w.desktopOnly,
+        // Phone-pairing state. NEVER holds key material — only the regular
+        // key's public ADDRESS and a timestamp. Regular-key seeds exist on
+        // desktop solely in memory during the pairing wizard.
+        pairing: w.pairing ? { regularKeyAddress: w.pairing.regularKeyAddress, pairedAt: w.pairing.pairedAt } : null,
     }));
+}
+
+// ── Phone pairing metadata (no secrets) ─────────────────────────────────────
+function setDesktopOnly(address, flag) {
+    const wallets = store.get('wallets') || {};
+    if (!wallets[address]) throw new Error('wallet_not_found');
+    wallets[address].desktopOnly = !!flag;
+    store.set('wallets', wallets);
+}
+
+function setPairing(address, { regularKeyAddress, pairedAt }) {
+    if (!regularKeyAddress) throw new Error('regular_key_address_required');
+    const wallets = store.get('wallets') || {};
+    if (!wallets[address]) throw new Error('wallet_not_found');
+    wallets[address].pairing = { regularKeyAddress, pairedAt: pairedAt || new Date().toISOString() };
+    store.set('wallets', wallets);
+}
+
+function clearPairing(address) {
+    const wallets = store.get('wallets') || {};
+    if (!wallets[address]) throw new Error('wallet_not_found');
+    wallets[address].pairing = null;
+    store.set('wallets', wallets);
 }
 
 function renameWallet(address, label) {
@@ -401,6 +435,9 @@ module.exports = {
     listWallets,
     renameWallet,
     deleteWallet,
+    setDesktopOnly,
+    setPairing,
+    clearPairing,
     revealSecret,
     revealAutoSignSecret,
     defaultAddress,

@@ -49,6 +49,15 @@ contextBridge.exposeInMainWorld('labs', {
         deleteWallet:   (address, password)   => invoke('wallet:delete', { address, password, confirm: 'DELETE' }),
     },
 
+    // ── Phone pairing (regular keys) ──
+    pair: {
+        listEligible:   ()                      => invoke('pair:list-eligible'),
+        status:         ()                      => invoke('pair:status'),
+        begin:          (addresses, password)   => invoke('pair:begin', { addresses, password }),
+        revoke:         (addresses, password)   => invoke('pair:revoke', { addresses, password }),
+        setDesktopOnly: (address, flag)         => invoke('wallet:set-desktop-only', { address, flag }),
+    },
+
     // ── Backup / restore ──
     backup: {
         exportAll: (password) => invoke('backup:export', { password }),

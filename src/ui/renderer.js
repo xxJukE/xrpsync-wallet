@@ -199,6 +199,7 @@ function showPane(name) {
         welcome: 'paneWelcome',
         wallet: 'paneWallet',
         'auto-sign': 'paneAutoSign',
+        pair: 'panePair',
         backup: 'paneBackup',
         settings: 'paneSettings',
         'new-wallet': 'paneNewWallet',
@@ -209,6 +210,8 @@ function showPane(name) {
     };
     const el = $(map[name] || 'paneWelcome');
     if (el) el.classList.remove('hidden');
+    // Leaving the pairing pane drops the one-time code + QR from the DOM/memory.
+    if (name !== 'pair' && typeof window._pairPaneLeft === 'function') window._pairPaneLeft();
     document.querySelectorAll('.lw-side .item, .lw-side .add-btn[data-pane]').forEach(i => i.classList.toggle('is-active', i.dataset.pane === name));
     if (name === 'account-manage') refreshAccountManage();
 }
@@ -218,6 +221,7 @@ document.querySelectorAll('.lw-side .item, .lw-side .add-btn[data-pane]').forEac
     showPane(i.dataset.pane);
     if (i.dataset.pane === 'auto-sign') refreshAutoSign();
     if (i.dataset.pane === 'settings') refreshSettings();
+    if (i.dataset.pane === 'pair') refreshPairPane();
 }));
 
 $('newWalletBtn').addEventListener('click', () => showPane('new-wallet'));
@@ -257,6 +261,10 @@ async function openWallet(address) {
     const w = state.wallets.find(x => x.address === address);
     $('wDetailLabel').textContent = (w?.label || 'Wallet');
     $('wDetailAddr').textContent = address;   // exact case — addresses are case-sensitive, never uppercased
+    // Phone-pairing eligibility flag + paired badge for this account.
+    const dOnly = $('wDesktopOnly');
+    if (dOnly) dOnly.checked = !!w?.desktopOnly;
+    $('wPairedBadge')?.classList.toggle('hidden', !w?.pairing);
     // If the receive-QR modal is open for a different address, close it. The
     // QR is address-specific and stale-ness here is confusing.
     closeQrModalIfOpen();
@@ -1840,5 +1848,210 @@ document.addEventListener('keydown', (e) => {
     $('ctDone')?.addEventListener('click', async () => {
         await closeCT();   // restores mainnet
         if (state.activeAddress) openWallet(state.activeAddress);
+    });
+})();
+
+// ── Phone pairing wizard ──────────────────────────────────────────────────────
+// pick → confirm (exact SetRegularKey shape + master password) → run → QR+code.
+// The one-time code, QR image, and master password live only in this closure
+// and are scrubbed when the user leaves the pane (window._pairPaneLeft).
+(function initPairing() {
+    const STEPS = ['pairStepPick', 'pairStepConfirm', 'pairStepRun', 'pairStepQr'];
+    let picked = new Set();      // addresses chosen in step 1
+    let wizPw = '';              // master password, held only while the wizard runs
+    let okAddrs = [];            // accounts whose SetRegularKey validated this run
+
+    function showStep(id) { STEPS.forEach(s => $(s)?.classList.toggle('hidden', s !== id)); }
+
+    function scrubSensitive() {
+        wizPw = '';
+        okAddrs = [];
+        picked.clear();
+        const img = $('pairQrImg'); if (img) img.removeAttribute('src');
+        const code = $('pairCode'); if (code) code.textContent = '————';
+        const pw = $('pairPw'); if (pw) pw.value = '';
+        const rpw = $('pairRevokePw'); if (rpw) rpw.value = '';
+    }
+    // Called by showPane() whenever the user navigates anywhere else.
+    window._pairPaneLeft = scrubSensitive;
+
+    const fmtCode = (c) => String(c).replace(/^(\d{4})(\d{4})$/, '$1 $2');
+
+    // ── Step 1: picker + paired status ──
+    window.refreshPairPane = async function refreshPairPane() {
+        scrubSensitive();
+        showStep('pairStepPick');
+        $('pairPickErr').textContent = '';
+        $('pairRevokeOut').textContent = '';
+        let elig = [];
+        try { elig = await window.labs.pair.listEligible(); }
+        catch (e) {
+            $('pairPickList').innerHTML = '<div class="mut" style="font-size:10px">unlock the wallet first</div>';
+            $('pairPickContinue').disabled = true;
+            return;
+        }
+        const list = $('pairPickList');
+        if (!elig.length) {
+            list.innerHTML = '<div class="mut" style="font-size:10px">No eligible accounts. Add a wallet, or untick "Desktop-only" on the account you want on your phone.</div>';
+        } else {
+            list.innerHTML = elig.map(w => `
+                <label class="row" style="gap:8px;align-items:center;font-size:11px;padding:5px 0;cursor:pointer">
+                    <input type="checkbox" class="pairPick" data-addr="${esc(w.address)}" />
+                    <span style="min-width:110px">${esc(w.label || 'Wallet')}</span>
+                    <code class="tabular mut" style="font-size:10px">${esc(shortAddr(w.address))}</code>
+                    ${w.pairing ? '<span class="pill" title="pairing again replaces the existing phone key">phone key active — will be replaced</span>' : ''}
+                </label>`).join('');
+            list.querySelectorAll('.pairPick').forEach(cb => cb.addEventListener('change', () => {
+                picked = new Set([...list.querySelectorAll('.pairPick:checked')].map(x => x.dataset.addr));
+                $('pairPickContinue').disabled = !picked.size;
+            }));
+        }
+        $('pairPickContinue').disabled = true;
+
+        // Paired status + revoke
+        let st = [];
+        try { st = await window.labs.pair.status(); } catch (_) {}
+        const paired = st.filter(w => w.pairing);
+        $('pairStatusMeta').textContent = paired.length ? paired.length + ' paired' : 'none paired';
+        $('pairRevokeAll').disabled = !paired.length;
+        if (!paired.length) {
+            $('pairStatusList').innerHTML = '<div class="mut" style="font-size:10px">No phone keys on any account.</div>';
+        } else {
+            $('pairStatusList').innerHTML = paired.map(w => `
+                <div class="row" style="gap:8px;align-items:center;font-size:11px;padding:5px 0">
+                    <span style="min-width:110px">${esc(w.label || 'Wallet')}</span>
+                    <code class="tabular mut" style="font-size:10px">${esc(shortAddr(w.address))}</code>
+                    <span class="mut" style="font-size:10px">key ${esc(shortAddr(w.pairing.regularKeyAddress))} · ${esc(new Date(w.pairing.pairedAt).toLocaleDateString())}</span>
+                    <button class="btn danger sm pairRevokeOne" data-addr="${esc(w.address)}" style="margin-left:auto">Revoke</button>
+                </div>`).join('');
+            $('pairStatusList').querySelectorAll('.pairRevokeOne').forEach(b => b.addEventListener('click', () => doRevoke([b.dataset.addr])));
+        }
+    };
+
+    async function doRevoke(addresses) {
+        const pw = $('pairRevokePw').value;
+        const out = $('pairRevokeOut');
+        if (!pw) { out.textContent = 'Enter the master password to revoke.'; return; }
+        out.textContent = 'Submitting SetRegularKey (clear) for ' + addresses.length + ' account(s)…';
+        try {
+            const r = await window.labs.pair.revoke(addresses, pw);
+            out.textContent = r.results.map(x => (x.ok ? '✓ revoked ' : '✗ failed (' + x.error + ') ') + shortAddr(x.address)).join('  ·  ');
+            if (r.ok) $('pairRevokePw').value = '';
+            // Refresh status without wiping the result message.
+            const msg = out.textContent;
+            await refreshPairPane();
+            $('pairRevokeOut').textContent = msg;
+        } catch (e) {
+            out.textContent = 'Revoke failed: ' + ((e && e.message) || e);
+        }
+    }
+    $('pairRevokeAll')?.addEventListener('click', async () => {
+        let st = [];
+        try { st = await window.labs.pair.status(); } catch (_) { return; }
+        doRevoke(st.filter(w => w.pairing).map(w => w.address));
+    });
+
+    // ── Step 2: explicit confirm — list + exact tx shape ──
+    $('pairPickContinue')?.addEventListener('click', () => {
+        if (!picked.size) return;
+        const sel = state.wallets.filter(w => picked.has(w.address));
+        $('pairConfirmList').innerHTML = sel.map(w => `
+            <div class="row" style="gap:8px;font-size:11px;padding:3px 0">
+                <span style="min-width:110px">${esc(w.label || 'Wallet')}</span>
+                <code class="tabular mut" style="font-size:10px">${esc(w.address)}</code>
+            </div>`).join('');
+        $('pairConfirmTx').textContent = JSON.stringify({
+            TransactionType: 'SetRegularKey',
+            Account: sel[0].address + (sel.length > 1 ? '   // …one per account' : ''),
+            RegularKey: '<fresh keypair minted at submit time>',
+        }, null, 2) + '\n\n// Revoke later = the same transaction with the RegularKey field omitted.';
+        $('pairConfirmErr').textContent = '';
+        showStep('pairStepConfirm');
+        $('pairPw').focus();
+    });
+    $('pairConfirmBack')?.addEventListener('click', () => refreshPairPane());
+
+    // ── Step 3: run ──
+    $('pairConfirmGo')?.addEventListener('click', async () => {
+        const pw = $('pairPw').value;
+        if (!pw) { $('pairConfirmErr').textContent = 'Master password required.'; return; }
+        wizPw = pw;
+        const addrs = [...picked];
+        $('pairConfirmErr').textContent = '';
+        $('pairRunMeta').textContent = 'submitting…';
+        $('pairRunPartial').classList.add('hidden');
+        $('pairRunList').innerHTML = addrs.map(a => `
+            <div class="row" style="gap:8px;font-size:11px;padding:3px 0" id="pairRun_${esc(a)}">
+                <code class="tabular mut" style="font-size:10px">${esc(shortAddr(a))}</code>
+                <span class="mut">SetRegularKey…</span>
+            </div>`).join('');
+        showStep('pairStepRun');
+
+        let r;
+        try { r = await window.labs.pair.begin(addrs, pw); }
+        catch (e) { r = { ok: false, error: (e && e.message) || 'failed', results: [] }; }
+
+        // Wrong password / total failure → back to confirm with the reason.
+        if (!r.ok && !(r.results || []).some(x => x.ok)) {
+            $('pairConfirmErr').textContent = r.error === 'wrong_password' ? 'Wrong master password.' : 'Pairing failed: ' + (r.error || 'unknown');
+            showStep('pairStepConfirm');
+            return;
+        }
+
+        okAddrs = r.results.filter(x => x.ok).map(x => x.address);
+        $('pairRunList').innerHTML = r.results.map(x => `
+            <div class="row" style="gap:8px;font-size:11px;padding:3px 0">
+                <code class="tabular mut" style="font-size:10px">${esc(shortAddr(x.address))}</code>
+                ${x.ok
+                    ? `<span style="color:var(--term-profit,#4adea1)">✓ regular key set</span> <code class="tabular mut" style="font-size:10px">${esc(shortAddr(x.regularKeyAddress))}</code>`
+                    : `<span style="color:var(--term-danger,#ff8a91)">✗ ${esc(x.error || 'failed')}</span>`}
+            </div>`).join('');
+        const failed = r.results.filter(x => !x.ok);
+        $('pairRunMeta').textContent = okAddrs.length + ' ok' + (failed.length ? ' · ' + failed.length + ' failed' : '');
+
+        // Stash QR + code for step 4 in closure-scoped DOM only.
+        const showQr = () => {
+            $('pairQrImg').src = r.qrPng;
+            $('pairCode').textContent = fmtCode(r.code);
+            $('pairQrErr').textContent = '';
+            showStep('pairStepQr');
+        };
+        if (failed.length) {
+            $('pairRunPartial').classList.remove('hidden');
+            $('pairRunErr').textContent = '';
+            $('pairRunContinue').onclick = showQr;
+            $('pairRunRevoke').onclick = async () => {
+                $('pairRunErr').textContent = 'Revoking ' + okAddrs.length + ' account(s)…';
+                const rr = await window.labs.pair.revoke(okAddrs, wizPw);
+                $('pairRunErr').textContent = rr.ok ? 'Revoked. No phone keys remain from this run.' : 'Revoke incomplete: ' + rr.results.filter(x => !x.ok).map(x => shortAddr(x.address) + ' (' + x.error + ')').join(', ');
+                if (rr.ok) setTimeout(() => refreshPairPane(), 1200);
+            };
+        } else {
+            showQr();
+        }
+    });
+
+    // ── Step 4: done / abort-with-revoke ──
+    $('pairQrDone')?.addEventListener('click', () => { refreshPairPane(); refreshWallets(); });
+    $('pairQrAbort')?.addEventListener('click', async () => {
+        $('pairQrErr').textContent = 'Revoking ' + okAddrs.length + ' account(s)…';
+        try {
+            const rr = await window.labs.pair.revoke(okAddrs, wizPw);
+            if (rr.ok) { $('pairQrErr').textContent = ''; refreshPairPane(); refreshWallets(); }
+            else $('pairQrErr').textContent = 'Revoke incomplete: ' + rr.results.filter(x => !x.ok).map(x => shortAddr(x.address) + ' (' + x.error + ')').join(', ');
+        } catch (e) {
+            $('pairQrErr').textContent = 'Revoke failed: ' + ((e && e.message) || e);
+        }
+    });
+
+    // ── Desktop-only toggle on the wallet pane ──
+    $('wDesktopOnly')?.addEventListener('change', async (e) => {
+        if (!state.activeAddress) return;
+        try {
+            await window.labs.pair.setDesktopOnly(state.activeAddress, e.target.checked);
+            await refreshWallets();
+        } catch (err) {
+            e.target.checked = !e.target.checked; // revert on failure (e.g. locked)
+        }
     });
 })();

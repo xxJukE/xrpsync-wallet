@@ -10,7 +10,7 @@ const path = require('path');
 
 // Defer requires that touch electron-store / xrpl until after app.whenReady to keep startup snappy.
 let WalletStore, WalletGenerate, WalletImport, WalletSign, WalletBackup, AutoSign;
-let WalletSync;
+let WalletSync, WalletPairing;
 let XrplConnection, XrplBalances, XrplHistory, XrplTrustlines, XrplTrustSet, XrplTokenIssuer, XrplSubmit;
 let BridgeServer, BridgeRemote, BridgeProtocol;
 let AccountApi, AccountSession, AccountPayment;
@@ -158,6 +158,7 @@ app.whenReady().then(() => {
     WalletSign      = require('./src/wallet/sign');
     WalletBackup    = require('./src/wallet/backup');
     WalletSync      = require('./src/wallet/sync');
+    WalletPairing   = require('./src/wallet/pairing');
     AutoSign        = require('./src/wallet/auto-sign');
     try { keytar = require('keytar'); }
     catch (e) { console.warn('[main] keytar unavailable, password recovery disabled:', e?.message || e); }
@@ -449,6 +450,35 @@ function registerIpc() {
         WalletStore.deleteWallet(address);
         scheduleAutoSync();
         return { ok: true };
+    });
+
+    // ── Phone pairing (regular keys — src/wallet/pairing.js) ──────────────
+    // desktopOnly: per-wallet flag; flagged wallets never appear in the
+    // pairing picker (and pairing.js refuses them even if passed).
+    ipcMain.handle('wallet:set-desktop-only', (_e, { address, flag }) => {
+        ensureUnlocked();
+        WalletStore.setDesktopOnly(address, !!flag);
+        return { ok: true };
+    });
+    ipcMain.handle('pair:list-eligible', () => { ensureUnlocked(); return WalletPairing.listEligible(); });
+    ipcMain.handle('pair:status', () => { ensureUnlocked(); return WalletPairing.status(); });
+    // begin: mints regular keys, submits SetRegularKey (master-password gated),
+    // returns the QR as a PNG data URL plus the one-time code. The raw seeds
+    // live only inside the encrypted envelope; the code + image are display-
+    // only and the renderer drops them when the wizard closes.
+    ipcMain.handle('pair:begin', async (_e, { addresses, password }) => {
+        ensureUnlocked();
+        const r = await WalletPairing.begin(addresses, password);
+        if (r.ok && r.qrText) {
+            const QRCode = require('qrcode');
+            r.qrPng = await QRCode.toDataURL(r.qrText, { width: 360, margin: 2, errorCorrectionLevel: 'M' });
+            delete r.qrText; // renderer gets the image, never the raw envelope text
+        }
+        return r;
+    });
+    ipcMain.handle('pair:revoke', async (_e, { addresses, password }) => {
+        ensureUnlocked();
+        return WalletPairing.revoke(addresses, password);
     });
 
     // Backup / restore

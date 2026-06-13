@@ -107,6 +107,7 @@
 
         <div class="h" style="margin-top:14px">Tools</div>
         <div class="item" data-pane="auto-sign">⚙ Auto-sign rules</div>
+        <div class="item" data-pane="pair">▣ Pair phone</div>
         <div class="item" data-pane="backup">⤓ Backup & restore</div>
         <div class="item" data-pane="settings">⚙ Settings</div>
 
@@ -190,6 +191,13 @@
                 <button class="btn danger" id="wDeleteBtn">Delete</button>
             </div>
 
+            <!-- Phone-pairing eligibility. Flag the Treasury (and anything else
+                 sensitive) desktop-only and it will never be offered to a phone. -->
+            <label class="row" id="wDesktopOnlyRow" style="gap:8px;align-items:center;font-size:11px;margin:2px 0 10px;cursor:pointer;color:var(--term-fg-2,#9aa3ad)">
+                <input type="checkbox" id="wDesktopOnly" />
+                <span><b>Desktop-only</b> — never offer this account to phone pairing <span id="wPairedBadge" class="pill hidden" style="margin-left:8px">phone key active</span></span>
+            </label>
+
             <div class="card">
                 <div class="card-h"><span class="t">Trustlines</span>
                     <span style="display:flex;align-items:center;gap:12px">
@@ -237,6 +245,120 @@
                         <thead><tr><th>TIME</th><th>SITE</th><th>TYPE</th><th>ACCOUNT</th><th class="num">XRP</th><th class="num">RLUSD</th><th>RESULT</th></tr></thead>
                         <tbody id="asLogBody"><tr><td colspan="7" class="mut" style="text-align:center;padding:18px">no auto-signs yet</td></tr></tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Phone pairing wizard — regular keys via encrypted QR + one-time code.
+             Step flow: pick → confirm (exact tx shown) → run → QR+code.
+             The code + QR live only in this pane's memory; leaving the pane drops them. -->
+        <div id="panePair" class="pane hidden">
+
+            <!-- Step 1 · pick accounts + paired status -->
+            <div id="pairStepPick">
+                <div class="card">
+                    <div class="card-h"><span class="t">PAIR PHONE</span><span class="m">regular keys · revocable</span></div>
+                    <div class="card-b">
+                        <p class="mut" style="font-size:10px;line-height:1.7">
+                            Give your phone its own <b>regular key</b> for the accounts you pick. The master keys never
+                            leave this desktop. Each selected account gets a fresh keypair set on-ledger
+                            (<b>SetRegularKey</b>, signed here); the phone receives only the regular-key seeds through an
+                            encrypted QR plus a one-time code shown beside it. You can <b>revoke the phone at any time</b> —
+                            one transaction per account disables its key. Accounts marked
+                            <b>desktop-only</b> in their wallet page never appear here.
+                        </p>
+                        <div class="hr"></div>
+                        <div id="pairPickList"><div class="mut" style="font-size:10px">loading…</div></div>
+                        <div class="hr"></div>
+                        <button class="btn primary" id="pairPickContinue" disabled>Continue</button>
+                        <div id="pairPickErr" class="err"></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-h"><span class="t">PHONE KEYS</span><span class="m" id="pairStatusMeta">—</span></div>
+                    <div class="card-b">
+                        <div id="pairStatusList"><div class="mut" style="font-size:10px">no accounts paired</div></div>
+                        <div class="hr"></div>
+                        <div class="row" style="gap:8px;align-items:center">
+                            <input id="pairRevokePw" type="password" placeholder="master password (required to revoke)" style="flex:1" />
+                            <button class="btn danger" id="pairRevokeAll" disabled>Revoke phone — all accounts</button>
+                        </div>
+                        <div id="pairRevokeOut" class="mut" style="margin-top:8px;font-size:10px"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2 · explicit confirm, exact tx shape -->
+            <div id="pairStepConfirm" class="hidden">
+                <div class="card">
+                    <div class="card-h"><span class="t">CONFIRM — SET REGULAR KEYS</span><span class="m">one tx per account</span></div>
+                    <div class="card-b">
+                        <p class="mut" style="font-size:10px;line-height:1.7">
+                            Exactly these accounts get a phone key. Each one is a <b>SetRegularKey</b> transaction on the
+                            XRP Ledger (tiny network fee), signed by this desktop with your master password. If an account
+                            already has a regular key, it is <b>replaced</b>.
+                        </p>
+                        <div id="pairConfirmList" style="margin:10px 0"></div>
+                        <div class="mut" style="font-size:10px;margin-bottom:5px">Exact transaction (Fee / Sequence / LastLedgerSequence are added automatically):</div>
+                        <pre id="pairConfirmTx" class="tabular" style="background:#0a0e14;border:1px solid var(--term-line,#1f2731);border-radius:4px;padding:10px 12px;font-size:11px;line-height:1.6;overflow:auto;margin:0 0 12px"></pre>
+                        <div class="field"><input id="pairPw" type="password" placeholder="master password" autocomplete="off" /></div>
+                        <div class="row" style="gap:8px">
+                            <button class="btn primary" id="pairConfirmGo">Set regular keys</button>
+                            <button class="btn ghost" id="pairConfirmBack" type="button">Back</button>
+                        </div>
+                        <div id="pairConfirmErr" class="err"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3 · per-account progress + abort/partial-failure revoke -->
+            <div id="pairStepRun" class="hidden">
+                <div class="card">
+                    <div class="card-h"><span class="t">SETTING REGULAR KEYS</span><span class="m" id="pairRunMeta">submitting…</span></div>
+                    <div class="card-b">
+                        <div id="pairRunList"></div>
+                        <div id="pairRunPartial" class="hidden">
+                            <div class="hr"></div>
+                            <p class="mut" style="font-size:10px;color:var(--term-warn,#f7c948)">
+                                Some accounts now have a phone key on-ledger but the pairing didn't complete for all of them.
+                                You can revoke the keys that were set, or continue with the accounts that succeeded.
+                            </p>
+                            <div class="row" style="gap:8px">
+                                <button class="btn danger" id="pairRunRevoke">Revoke the keys that were set</button>
+                                <button class="btn primary" id="pairRunContinue">Continue with successful accounts</button>
+                            </div>
+                            <div id="pairRunErr" class="err"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4 · QR + one-time code (code is NEVER inside the QR) -->
+            <div id="pairStepQr" class="hidden">
+                <div class="card">
+                    <div class="card-h"><span class="t">SCAN WITH YOUR PHONE</span><span class="m">XRPSync mobile → Pair with desktop</span></div>
+                    <div class="card-b">
+                        <div class="row" style="gap:24px;align-items:flex-start;flex-wrap:wrap">
+                            <img id="pairQrImg" width="280" height="280" alt="pairing QR" style="background:#fff;border-radius:6px;padding:8px;flex:none" />
+                            <div style="flex:1;min-width:220px">
+                                <div class="mut" style="font-size:9px;letter-spacing:0.10em;margin-bottom:6px">ONE-TIME CODE — TYPE IT ON THE PHONE</div>
+                                <div id="pairCode" class="tabular" style="font-size:30px;letter-spacing:0.30em;color:var(--term-fg)">————</div>
+                                <p class="mut" style="font-size:10px;line-height:1.7;margin-top:12px">
+                                    The code is shown only here — never inside the QR. A photo of the QR alone can't
+                                    unlock anything. Neither is saved to disk; both disappear when you leave this screen.
+                                </p>
+                                <p class="mut" style="font-size:10px;line-height:1.7">
+                                    Your desktop keeps the master keys and can revoke this phone at any time.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="hr"></div>
+                        <div class="row" style="gap:8px">
+                            <button class="btn primary" id="pairQrDone">Done</button>
+                            <button class="btn danger" id="pairQrAbort">Abort — revoke these keys now</button>
+                        </div>
+                        <div id="pairQrErr" class="err"></div>
+                    </div>
                 </div>
             </div>
         </div>
