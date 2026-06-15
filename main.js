@@ -606,6 +606,20 @@ function registerIpc() {
     });
     ipcMain.handle('token:toml', (_e, opts = {}) => ({ ok: true, toml: XrplTokenIssuer.buildToml(opts) }));
 
+    // Address book (saved external destinations — public addresses + tag only)
+    ipcMain.handle('addrbook:list', () => {
+        try { return { ok: true, entries: WalletStore.listAddressBook() }; }
+        catch (e) { return { ok: false, error: (e && e.message) || 'addrbook_error' }; }
+    });
+    ipcMain.handle('addrbook:add', (_e, { label, address, tag } = {}) => {
+        try { return { ok: true, entry: WalletStore.addAddressBookEntry({ label, address, tag }) }; }
+        catch (e) { return { ok: false, error: (e && e.message) || 'addrbook_error' }; }
+    });
+    ipcMain.handle('addrbook:remove', (_e, { id } = {}) => {
+        try { return { ok: true, entries: WalletStore.removeAddressBookEntry(id) }; }
+        catch (e) { return { ok: false, error: (e && e.message) || 'addrbook_error' }; }
+    });
+
     // Auto-sign rules
     ipcMain.handle('autosign:rules', () => AutoSign.getAllRules());
     ipcMain.handle('autosign:set', (_e, { site, rules }) => AutoSign.setRules(site, rules));

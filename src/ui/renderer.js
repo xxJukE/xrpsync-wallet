@@ -9,6 +9,7 @@ const state = {
     pane: 'welcome',
     autoSignRules: {},
     autoSignLog: [],
+    addressBook: [],
     autoSignAllowed: undefined, // resolved from account entitlements (Pro = true)
 };
 
@@ -576,7 +577,106 @@ $('wSendBtn').addEventListener('click', () => {
     $('sndFrom').textContent = shortAddr(state.activeAddress);
     $('sndResult').textContent = '';
     $('sndTo').value = ''; $('sndAmt').value = ''; $('sndTag').value = ''; $('sndPw').value = '';
+    refreshAddressBook();
     showPane('send');
+});
+
+// ── Address book ────────────────────────────────────────────────────────────
+// Split a pasted destination into a classic address + optional tag. Exchanges
+// (Kalshi/Zerohash) hand out `r…?dt=<tag>` — pasting the whole string makes the
+// XRPL Destination field invalid AND drops the tag the exchange needs to credit
+// the deposit. We split it so both halves land in the right field.
+function parseDestination(raw) {
+    let s = (raw || '').trim().replace(/^(?:ripple|xrpl):\/*/i, '');
+    let address = s, tag = null;
+    const qi = s.indexOf('?');
+    if (qi !== -1) {
+        address = s.slice(0, qi);
+        try {
+            const p = new URLSearchParams(s.slice(qi + 1));
+            const dt = p.get('dt') || p.get('dest_tag') || p.get('destinationtag');
+            if (dt != null && dt !== '') {
+                const n = Number(dt);
+                if (Number.isInteger(n) && n >= 0 && n <= 4294967295) tag = n;
+            }
+        } catch (_) { /* malformed query — keep address, no tag */ }
+    }
+    return { address: address.trim(), tag };
+}
+
+// Auto-split the destination input as the user types/pastes. If a `?dt=` is
+// present we move the address into the field and the tag into the tag field.
+function autoSplitDestination() {
+    const raw = $('sndTo').value;
+    if (!raw || raw.indexOf('?') === -1) return;
+    const { address, tag } = parseDestination(raw);
+    $('sndTo').value = address;
+    if (tag !== null) $('sndTag').value = String(tag);
+}
+$('sndTo').addEventListener('input', autoSplitDestination);
+$('sndTo').addEventListener('blur', autoSplitDestination);
+
+async function refreshAddressBook(selectId) {
+    const sel = $('sndBook');
+    const r = await window.labs.addrbook.list();
+    const entries = (r && r.ok && r.entries) ? r.entries : [];
+    state.addressBook = entries;
+    sel.innerHTML = '<option value="">— pick a saved address —</option>' +
+        entries.map(e => {
+            const tagBit = e.tag !== null && e.tag !== undefined ? ` · tag ${e.tag}` : '';
+            return `<option value="${e.id}">${escapeHtml(e.label)} (${shortAddr(e.address)}${tagBit})</option>`;
+        }).join('');
+    sel.value = selectId || '';
+    $('sndBookDel').disabled = !sel.value;
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+$('sndBook').addEventListener('change', () => {
+    const id = $('sndBook').value;
+    $('sndBookDel').disabled = !id;
+    const e = (state.addressBook || []).find(x => x.id === id);
+    if (!e) return;
+    $('sndTo').value = e.address;
+    $('sndTag').value = (e.tag !== null && e.tag !== undefined) ? String(e.tag) : '';
+});
+
+$('sndBookSave').addEventListener('click', async () => {
+    autoSplitDestination();
+    const { address, tag } = parseDestination($('sndTo').value);
+    if (!address) { $('sndResult').textContent = 'enter a destination address to save'; return; }
+    // A tag already typed into the tag field wins if the pasted address had none.
+    const tagField = $('sndTag').value ? Number($('sndTag').value) : null;
+    const finalTag = tag !== null ? tag : tagField;
+    const label = await promptModal({
+        title: 'Save address', type: 'text', placeholder: 'e.g. Kalshi', okText: 'Save',
+        message: `${shortAddr(address)}${finalTag !== null ? ` · tag ${finalTag}` : ''}`,
+    });
+    if (label === null) return;
+    const r = await window.labs.addrbook.add(label, address, finalTag);
+    if (!r || r.ok === false) {
+        const msg = r && r.error === 'invalid_address' ? 'That is not a valid XRPL address.'
+                  : r && r.error === 'invalid_tag' ? 'Destination tag must be a whole number.'
+                  : 'Could not save: ' + ((r && r.error) || 'unknown');
+        await infoModal({ title: 'Save failed', message: msg });
+        return;
+    }
+    await refreshAddressBook(r.entry.id);
+});
+
+$('sndBookDel').addEventListener('click', async () => {
+    const id = $('sndBook').value;
+    if (!id) return;
+    const e = (state.addressBook || []).find(x => x.id === id);
+    const ok = await promptModal({
+        title: 'Remove saved address', type: 'text', placeholder: 'type REMOVE', okText: 'Remove',
+        message: `Remove "${e ? e.label : 'this address'}" from your saved list?`,
+    });
+    if (ok === null || ok.trim().toUpperCase() !== 'REMOVE') return;
+    await window.labs.addrbook.remove(id);
+    await refreshAddressBook();
 });
 
 // Fund Wallet — open xrpsync.com/buy-xrp in the default browser with the
@@ -590,9 +690,13 @@ $('wFundBtn')?.addEventListener('click', async () => {
 $('sndCancel').addEventListener('click', () => showPane('wallet'));
 
 $('sndSubmit').addEventListener('click', async () => {
-    const to = $('sndTo').value.trim();
+    // Safety net: if a `r…?dt=…` is still in the field at submit time, split it
+    // so we never send an invalid Destination or silently drop the tag.
+    const parsed = parseDestination($('sndTo').value);
+    const to = parsed.address;
     const amt = Number($('sndAmt').value);
-    const tag = $('sndTag').value ? Number($('sndTag').value) : null;
+    const typedTag = $('sndTag').value ? Number($('sndTag').value) : null;
+    const tag = parsed.tag !== null ? parsed.tag : typedTag;
     const pw = $('sndPw').value;
     if (!to || !amt || amt <= 0 || !pw) { $('sndResult').textContent = 'fill all required fields'; return; }
     $('sndResult').textContent = 'signing…';

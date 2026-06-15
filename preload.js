@@ -93,6 +93,13 @@ contextBridge.exposeInMainWorld('labs', {
         toml:          (opts)                   => invoke('token:toml', opts),
     },
 
+    // ── Address book (saved external destinations) ──
+    addrbook: {
+        list:   ()                      => invoke('addrbook:list'),
+        add:    (label, address, tag)   => invoke('addrbook:add', { label, address, tag }),
+        remove: (id)                    => invoke('addrbook:remove', { id }),
+    },
+
     // ── Auto-sign rules ──
     autosign: {
         all:        ()                  => invoke('autosign:rules'),

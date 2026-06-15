@@ -622,8 +622,16 @@
                 <div class="card-h"><span class="t">SEND</span><span class="m" id="sndFrom">—</span></div>
                 <div class="card-b">
                     <div class="field">
+                        <label>Saved addresses</label>
+                        <div class="row" style="gap:8px">
+                            <select id="sndBook" style="flex:1"></select>
+                            <button class="btn ghost" id="sndBookSave" title="Save the address &amp; tag below">Save</button>
+                            <button class="btn ghost" id="sndBookDel" title="Remove the selected saved address" disabled>Remove</button>
+                        </div>
+                    </div>
+                    <div class="field">
                         <label>Destination address</label>
-                        <input id="sndTo" placeholder="r…" />
+                        <input id="sndTo" placeholder="r… (a pasted r…?dt=… is split automatically)" />
                     </div>
                     <div class="field">
                         <label>Amount (XRP)</label>

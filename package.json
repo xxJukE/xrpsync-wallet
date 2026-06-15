@@ -1,6 +1,6 @@
 {
   "name": "xrpsync-wallet",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "XRPSync Wallet — XRPL desktop wallet with auto-sign for XRPSync.",
   "main": "main.js",
   "author": "XRPSync",

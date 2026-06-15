@@ -414,6 +414,46 @@ function setPref(key, value) {
     store.set('prefs', prefs);
 }
 
+// ── Address book (saved external destinations) ──────────────────────────────
+// Non-secret: only public classic addresses + an optional destination tag and a
+// user label. Stored in cleartext alongside prefs — there is nothing here that
+// isn't already public on-ledger. Each entry: { id, label, address, tag, addedAt }.
+// `tag` is a non-negative integer or null. Exchanges (Kalshi/Zerohash, etc.) hand
+// out a pooled deposit address + a per-user destination tag; saving both together
+// means the user never has to re-paste the `r…?dt=…` string by hand.
+function listAddressBook() {
+    return store.get('address_book') || [];
+}
+
+function addAddressBookEntry({ label, address, tag } = {}) {
+    if (!address || typeof address !== 'string' || !/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(address.trim())) {
+        throw new Error('invalid_address');
+    }
+    const cleanTag = (tag === null || tag === undefined || tag === '') ? null : Number(tag);
+    if (cleanTag !== null && (!Number.isInteger(cleanTag) || cleanTag < 0 || cleanTag > 4294967295)) {
+        throw new Error('invalid_tag');
+    }
+    const book = listAddressBook();
+    const entry = {
+        id: crypto.randomUUID(),
+        label: (label && String(label).trim()) || shortLabel(address.trim()),
+        address: address.trim(),
+        tag: cleanTag,
+        addedAt: new Date().toISOString(),
+    };
+    book.push(entry);
+    store.set('address_book', book);
+    return entry;
+}
+
+function removeAddressBookEntry(id) {
+    const book = listAddressBook().filter((e) => e.id !== id);
+    store.set('address_book', book);
+    return book;
+}
+
+function shortLabel(a) { return a.slice(0, 6) + '…' + a.slice(-4); }
+
 // ── Auto-sign storage (used by auto-sign module) ────────────────────────────
 function getAutoSignRules() { return store.get('auto_sign_rules') || {}; }
 function setAutoSignRules(rules) { store.set('auto_sign_rules', rules); }
@@ -443,6 +483,9 @@ module.exports = {
     defaultAddress,
     getPref,
     setPref,
+    listAddressBook,
+    addAddressBookEntry,
+    removeAddressBookEntry,
     getAutoSignRules,
     setAutoSignRules,
     getAutoSignLog,
