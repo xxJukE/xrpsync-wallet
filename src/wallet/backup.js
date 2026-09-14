@@ -48,10 +48,13 @@ async function exportAll(backupPassword) {
     }, null, 2);
 }
 
-async function importAll(blob, backupPassword) {
+/** Parse + decrypt a backup file. Touches nothing on disk. Throws on bad file / wrong password. */
+async function decryptBackup(blob, backupPassword) {
     let parsed;
     try { parsed = JSON.parse(blob); } catch (_) { throw new Error('invalid_backup_file'); }
+    if (!parsed || typeof parsed !== 'object') throw new Error('invalid_backup_file');
     if (parsed.v !== 1) throw new Error('unsupported_backup_version');
+    if (typeof parsed.salt !== 'string' || typeof parsed.iv !== 'string' || typeof parsed.ct !== 'string') throw new Error('invalid_backup_file');
 
     const salt = Buffer.from(parsed.salt, 'base64');
     const key = await pbkdf2(backupPassword, salt);
@@ -69,7 +72,11 @@ async function importAll(blob, backupPassword) {
         throw new Error('wrong_backup_password');
     }
 
-    const data = JSON.parse(plain);
+    return JSON.parse(plain);
+}
+
+/** Save an already-decrypted backup into the (unlocked) live store. Returns the wallet count. */
+async function importDecrypted(data) {
     let imported = 0;
     for (const w of (data.wallets || [])) {
         try {
@@ -92,6 +99,10 @@ async function importAll(blob, backupPassword) {
     return imported;
 }
 
+async function importAll(blob, backupPassword) {
+    return importDecrypted(await decryptBackup(blob, backupPassword));
+}
+
 function pbkdf2(password, salt) {
     return new Promise((resolve, reject) => {
         crypto.pbkdf2(password, salt, PBKDF2_ITERS, 32, 'sha512', (err, key) => {
@@ -101,4 +112,4 @@ function pbkdf2(password, salt) {
     });
 }
 
-module.exports = { exportAll, importAll };
+module.exports = { exportAll, importAll, decryptBackup, importDecrypted };

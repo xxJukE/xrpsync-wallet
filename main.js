@@ -7,6 +7,7 @@
 
 const { app, BrowserWindow, ipcMain, Menu, dialog, shell, Tray, nativeImage, systemPreferences } = require('electron');
 const path = require('path');
+const fs   = require('fs');
 
 // Defer requires that touch electron-store / xrpl until after app.whenReady to keep startup snappy.
 let WalletStore, WalletGenerate, WalletImport, WalletSign, WalletBackup, AutoSign;
@@ -25,7 +26,7 @@ const KEYTAR_ACCOUNT = 'master-password';
 const LABS_API_BASE = process.env.LABS_API_BASE || 'https://xrpsync.com';
 // Bump on each release build so a running binary can be identified vs older
 // installs (logged at startup + surfaced in the wallet footer / app:info IPC).
-const BUILD_STAMP = '2026-06-09';
+const BUILD_STAMP = '2026-09-14';
 let pendingSyncTimer = null;
 
 let mainWindow = null;
@@ -35,6 +36,50 @@ let lockTimer = null;
 let isLocked = true;
 let Updater = null;          // src/update/updater (packaged builds only)
 let updateCheckTimer = null;
+
+// ── Portable mode ───────────────────────────────────────────────────────────
+// Portable = the wallet keeps its data folder NEXT TO the executable (thumb
+// drive) instead of in the OS profile dir. Detected when any of these hold:
+//   • launched from an electron-builder `portable` Windows build — its
+//     launcher sets PORTABLE_EXECUTABLE_DIR to the folder the .exe sits in;
+//   • started with --portable;
+//   • a file named `portable.txt` sits next to the executable / .app / AppImage.
+// Everything else (encryption, bridge, auto-sign) is unchanged. What differs:
+//   • data lives in <that folder>/XRPSyncWalletData (labs-wallet-data.json etc.)
+//   • password recovery is OFF — the OS keychain belongs to the host PC
+//   • auto-update is OFF — a portable exe can't replace itself; copy a new one
+// Must run BEFORE requestSingleInstanceLock() and any electron-store init —
+// both key off app.getPath('userData').
+const PORTABLE = detectPortable();
+if (PORTABLE.enabled) {
+    try {
+        fs.mkdirSync(PORTABLE.dataDir, { recursive: true });
+        app.setPath('userData', PORTABLE.dataDir);
+    } catch (e) {
+        console.error('[main] portable data dir unusable, using profile dir instead:', e?.message || e);
+        PORTABLE.enabled = false;
+    }
+}
+function detectPortable() {
+    const argFlag = process.argv.includes('--portable');
+    const envDir  = process.env.PORTABLE_EXECUTABLE_DIR || null;
+    const exeDir  = executableDir();
+    let markerDir = null;
+    try { if (fs.existsSync(path.join(exeDir, 'portable.txt'))) markerDir = exeDir; } catch (_) {}
+    const baseDir = envDir || markerDir || (argFlag ? exeDir : null);
+    if (!baseDir) return { enabled: false, baseDir: null, dataDir: null };
+    return { enabled: true, baseDir, dataDir: path.join(baseDir, 'XRPSyncWalletData') };
+}
+// Folder the user actually sees the app in — not the binary buried inside a
+// bundle. AppImage: the real file is APPIMAGE (execPath is a mounted squashfs).
+// macOS: walk out of Foo.app/Contents/MacOS/Foo to the folder holding Foo.app.
+function executableDir() {
+    if (process.env.APPIMAGE) return path.dirname(process.env.APPIMAGE);
+    const exe = process.execPath;
+    const m = /^(.*)\/[^/]+\.app\/Contents\/MacOS\/[^/]+$/.exec(exe);
+    if (process.platform === 'darwin' && m) return m[1];
+    return path.dirname(exe);
+}
 
 // ── Single-instance lock ────────────────────────────────────────────────────
 // Prevents multiple wallet instances from running at once. Without this, extra
@@ -160,8 +205,12 @@ app.whenReady().then(() => {
     WalletSync      = require('./src/wallet/sync');
     WalletPairing   = require('./src/wallet/pairing');
     AutoSign        = require('./src/wallet/auto-sign');
-    try { keytar = require('keytar'); }
-    catch (e) { console.warn('[main] keytar unavailable, password recovery disabled:', e?.message || e); }
+    if (PORTABLE.enabled) {
+        console.log('[main] portable mode: password recovery (OS keychain) disabled');
+    } else {
+        try { keytar = require('keytar'); }
+        catch (e) { console.warn('[main] keytar unavailable, password recovery disabled:', e?.message || e); }
+    }
     XrplConnection  = require('./src/xrpl/connection');
     XrplBalances    = require('./src/xrpl/balances');
     XrplHistory     = require('./src/xrpl/history');
@@ -187,6 +236,8 @@ app.whenReady().then(() => {
         startedAt: new Date().toISOString(),
         electron:  process.versions.electron,
         platform:  process.platform,
+        portable:  PORTABLE.enabled,
+        userData:  app.getPath('userData'),
     });
 
     createMainWindow();
@@ -209,6 +260,7 @@ function registerIpc() {
         hasMaster: WalletStore.hasMasterPassword(),
         kdf:       WalletStore.masterKdf(),
         lockMs,
+        portable:  PORTABLE.enabled,
     }));
 
     // First-launch setup. Generates a strong random master password, sets it as
@@ -243,6 +295,32 @@ function registerIpc() {
         markUnlocked();
         return { ok: true };
     });
+    // First-launch RESTORE. Lets a fresh install (new PC / portable copy) come
+    // up straight from a Backup & restore file without first creating a
+    // throwaway master password the user then confuses with the old one.
+    // Order matters: decrypt the file FIRST (a wrong backup password leaves the
+    // store untouched), THEN generate the master, THEN save the wallets under it.
+    ipcMain.handle('lock:first-launch-restore', async (_e, { backupPassword } = {}) => {
+        if (WalletStore.hasMasterPassword()) return { ok: false, error: 'master_already_set' };
+        if (!backupPassword) return { ok: false, error: 'backup_password_required' };
+        const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+            title: 'Open XRPSync Wallet backup',
+            filters: [{ name: 'JSON', extensions: ['json'] }],
+            properties: ['openFile'],
+        });
+        if (canceled || !filePaths.length) return { ok: false, error: 'canceled' };
+        let data;
+        try {
+            const blob = fs.readFileSync(filePaths[0], 'utf8');
+            data = await WalletBackup.decryptBackup(blob, backupPassword);
+        } catch (e) { return { ok: false, error: e.message || String(e) }; }
+        const password = WalletStore.generateMasterPassword(24);
+        await WalletStore.setMasterPassword(password);
+        markUnlocked();
+        const imported = await WalletBackup.importDecrypted(data);
+        BridgeServer?.broadcastWalletInfo();
+        return { ok: true, password, imported, path: filePaths[0] };
+    });
     ipcMain.handle('lock:unlock', async (_e, password) => {
         const result = await WalletStore.unlock(password);
         if (result.ok) markUnlocked();
@@ -258,6 +336,8 @@ function registerIpc() {
         build:    BUILD_STAMP,
         electron: process.versions.electron,
         platform: process.platform,
+        portable: PORTABLE.enabled,
+        dataDir:  app.getPath('userData'),
     }));
 
     // ── Auto-update (pill-driven) ──
@@ -276,7 +356,7 @@ function registerIpc() {
         if (enabled && keytar) {
             try { stored = !!(await keytar.getPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT)); } catch (_) {}
         }
-        return { enabled, keytar_available: !!keytar, stored };
+        return { enabled, keytar_available: !!keytar, stored, portable: PORTABLE.enabled };
     });
 
     ipcMain.handle('settings:set-password-recovery', async (_e, { enabled, password }) => {
@@ -823,6 +903,10 @@ function scheduleAutoSync() {
 function startUpdater() {
     if (!app.isPackaged) {
         console.log('[main] updater disabled (dev / unpackaged)');
+        return;
+    }
+    if (PORTABLE.enabled) {
+        console.log('[main] updater disabled (portable — replace the executable to update)');
         return;
     }
     try {

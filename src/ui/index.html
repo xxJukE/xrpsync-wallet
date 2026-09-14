@@ -37,6 +37,11 @@
             </p>
             <button class="btn" id="genChoiceAuto" type="button" style="width:100%;margin-bottom:8px">Auto-generate a strong password (recommended)</button>
             <button class="btn ghost" id="genChoiceCustom" type="button" style="width:100%">Set my own password</button>
+            <button class="btn ghost" id="genChoiceRestore" type="button" style="width:100%;margin-top:8px">Restore from a backup file…</button>
+            <p class="mut" style="text-align:center;font-size:10px;line-height:1.6;margin:12px 0 0">
+                Moving from another computer? You can also copy its <code>labs-wallet-data.json</code><br>
+                into this copy's data folder (Help → Open data folder) before setup — that keeps the old master password.
+            </p>
         </div>
 
         <!-- Step A: auto-generated password -->
@@ -47,6 +52,7 @@
                 It was generated for maximum security.<br>
                 <b style="color:var(--term-warn,#f7c948)">WRITE IT DOWN. We cannot recover it.</b>
             </p>
+            <div id="genPwRestoredNote" class="mut hidden" style="text-align:center;font-size:10px;line-height:1.6;margin:0 0 10px;color:var(--term-profit,#3fb950)"></div>
             <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--term-line,#1f2731);border-radius:4px;background:#0a0e14;margin-bottom:14px">
                 <code id="genPwOut" class="tabular" style="flex:1;font-size:13px;letter-spacing:0.04em;color:var(--term-fg);word-break:break-all">—</code>
                 <button class="btn ghost" id="genPwCopy" type="button" style="white-space:nowrap">COPY</button>
@@ -78,6 +84,22 @@
                 <button id="genCustomBack" class="btn ghost" style="flex:1" type="button">Back</button>
             </div>
             <div id="genCustomErr" class="err"></div>
+        </div>
+
+        <!-- Step C: restore from a Backup & restore file (new PC / portable copy) -->
+        <div id="genRestore" class="hidden">
+            <div class="ttl">⤓ RESTORE FROM BACKUP FILE</div>
+            <p class="mut" style="text-align:center;font-size:10px;line-height:1.6;margin:0 0 14px">
+                Pick a file exported from <b>Backup &amp; restore</b> on another XRPSync Wallet.<br>
+                Enter the <b>backup password</b> you chose when exporting — not the old master password.<br>
+                This copy gets its own new master password on the next screen.
+            </p>
+            <div class="field"><input id="genRestorePw" type="password" placeholder="backup password" autocomplete="off" /></div>
+            <div class="row" style="gap:8px">
+                <button id="genRestoreGo" class="btn" style="flex:1" disabled>Choose file &amp; restore</button>
+                <button id="genRestoreBack" class="btn ghost" style="flex:1" type="button">Back</button>
+            </div>
+            <div id="genRestoreErr" class="err"></div>
         </div>
     </div>
 </div>

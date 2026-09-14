@@ -17,9 +17,13 @@ asarUnpack:
   - node_modules/keytar/**            # keytar native module
   - "**/*.node"                        # safety net for any native binary
 win:
-  target: nsis
+  target:
+    - nsis                              # installer (auto-updates via latest.yml)
+    - portable                          # single .exe for a thumb drive — data next to the exe, no auto-update
   icon: assets/icon.ico
   signAndEditExecutable: false
+portable:
+  artifactName: XRPSync-Wallet-Portable-${version}.${ext}
 mac:
   target: dmg
   icon: assets/icon.icns

@@ -45,8 +45,10 @@ async function startFirstLaunchFlow() {
     $('genChoice').classList.remove('hidden');
     $('genGenerated').classList.add('hidden');
     $('genCustom').classList.add('hidden');
+    $('genRestore').classList.add('hidden');
     $('genChoiceAuto').onclick = runAutoGenerate;
     $('genChoiceCustom').onclick = showCustomPasswordForm;
+    $('genChoiceRestore').onclick = showRestoreForm;
 }
 
 function closeSetup() {
@@ -63,7 +65,19 @@ async function runAutoGenerate() {
     try { r = await window.labs.lock.firstLaunchSetup(); }
     catch (e) { $('genPwErr').textContent = String(e?.message || e); return; }
     if (!r.ok) { closeSetup(); return; }   // master appeared between status() + here
-    const pw = r.password;
+    showGeneratedPassword(r.password, null);
+}
+
+// Shared "here is your master password, write it down" screen. Used by the
+// auto-generate path and by restore-from-file (which generates one too).
+function showGeneratedPassword(pw, note) {
+    $('genChoice').classList.add('hidden');
+    $('genCustom').classList.add('hidden');
+    $('genRestore').classList.add('hidden');
+    $('genGenerated').classList.remove('hidden');
+    const noteEl = $('genPwRestoredNote');
+    if (note) { noteEl.textContent = note; noteEl.classList.remove('hidden'); }
+    else noteEl.classList.add('hidden');
     $('genPwOut').textContent = pw;
 
     const updateCta = () => { $('genPwContinue').disabled = !($('genPwAck1').checked && $('genPwAck2').checked); };
@@ -77,6 +91,41 @@ async function runAutoGenerate() {
         $('genPwOut').textContent = '••••••••••••••••••••••••';   // wipe from DOM
         closeSetup();
         await refreshAll();
+    };
+}
+
+// Restore path — fresh install fed from a Backup & restore file. Main decrypts
+// the file first, then generates the master, so a wrong backup password never
+// leaves a half-set-up store behind.
+function showRestoreForm() {
+    $('genChoice').classList.add('hidden');
+    $('genRestore').classList.remove('hidden');
+    const pw = $('genRestorePw'), go = $('genRestoreGo'), errEl = $('genRestoreErr');
+    const idle = () => { go.disabled = !pw.value; go.textContent = 'Choose file & restore'; };
+    pw.value = ''; errEl.textContent = ''; idle();
+    pw.oninput = idle;
+    pw.onkeydown = (e) => { if (e.key === 'Enter' && !go.disabled) go.click(); };
+    $('genRestoreBack').onclick = () => { $('genRestore').classList.add('hidden'); $('genChoice').classList.remove('hidden'); };
+    go.onclick = async () => {
+        if (go.disabled) return;
+        errEl.textContent = ''; go.disabled = true; go.textContent = 'Restoring…';
+        let r; try { r = await window.labs.lock.firstLaunchRestore(pw.value); } catch (e) { r = { ok: false, error: e?.message }; }
+        if (r && r.ok) {
+            pw.value = '';
+            const n = r.imported;
+            showGeneratedPassword(r.password,
+                'Restored ' + n + ' wallet' + (n === 1 ? '' : 's') + ' from the backup file.' +
+                (n === 0 ? ' (The file held no readable wallets.)' : '') +
+                ' This copy now has its OWN master password — save this one:');
+            return;
+        }
+        idle();
+        errEl.textContent = r?.error === 'canceled' ? ''
+            : r?.error === 'wrong_backup_password' ? 'Wrong backup password.'
+            : r?.error === 'invalid_backup_file' ? 'That file is not an XRPSync Wallet backup.'
+            : r?.error === 'unsupported_backup_version' ? 'This backup was made by a newer wallet — update this copy first.'
+            : r?.error === 'master_already_set' ? 'A master password is already set.'
+            : ('Restore failed: ' + (r?.error || 'unknown'));
     };
 }
 
@@ -1116,6 +1165,12 @@ async function refreshPasswordRecoverySettings() {
     const t = $('setRecToggle'), reveal = $('setRecReveal'), meta = $('setRecMeta');
     t.checked = !!s.enabled;
     reveal.disabled = !s.enabled || !s.stored;
+    if (s.portable) {
+        t.disabled = true;
+        meta.textContent = 'off (portable)';
+        $('setRecStatus').textContent = 'Portable copy — the OS keychain belongs to whichever PC this is plugged into, so password recovery is off. Keep your master password written down.';
+        return;
+    }
     if (!s.keytar_available) {
         t.disabled = true;
         meta.textContent = 'unavailable on this system';
@@ -1605,7 +1660,7 @@ bootLockState();
 // Surface build identity in the footer so the running binary is identifiable.
 window.labs.appInfo().then((info) => {
     const f = $('footMeta');
-    if (f && info && info.version) f.textContent = 'v' + info.version + ' · build ' + (info.build || '?');
+    if (f && info && info.version) f.textContent = 'v' + info.version + ' · build ' + (info.build || '?') + (info.portable ? ' · PORTABLE' : '');
 }).catch(() => {});
 setInterval(refreshStatus, 15_000);
 

@@ -38,6 +38,11 @@ both are required; without the yml the client can't detect updates.
 - **Windows (NSIS):** works unsigned (`signAndEditExecutable: false`). Users see
   a SmartScreen warning on first install; auto-update itself works fine.
 - **Linux (AppImage):** auto-update works out of the box.
+- **Windows (portable):** `build:win` also emits
+  `XRPSync-Wallet-Portable-<version>.exe` (electron-builder `portable` target).
+  It is a plain artifact — attach it to the release but it does **not** take part
+  in auto-update (the app disables the updater when it detects portable mode;
+  users replace the exe by hand). Unsigned, so SmartScreen warns on first run.
 - **macOS:** auto-update **requires code signing + notarization** — Squirrel.Mac
   refuses to update an unsigned/ad-hoc app. Until you have an Apple Developer
   cert, Mac users must update manually. (The pill still shows; install will fail.)

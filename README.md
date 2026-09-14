@@ -19,6 +19,44 @@ locally — your private keys never leave the device.
 - App locks after 5 minutes of inactivity; password re-entry required to unlock.
 - Failed unlock attempts trigger an escalating lockout.
 
+## Moving to another computer / portable copy
+
+Everything the wallet knows lives in one encrypted file, `labs-wallet-data.json`,
+in the data folder (Help → **Open data folder**). Three ways to move it:
+
+1. **Copy the data file (recommended, keeps everything).** Close the wallet on the
+   new machine, drop the old machine's `labs-wallet-data.json` into its data
+   folder, launch. The old master password works (the key salt is inside the file),
+   and auto-sign rules, phone pairing, address book and prefs all come along.
+   Log in to XRPSync again — the session token is tied to the old machine's OS.
+   Password recovery (OS keychain) must be re-enabled if you used it.
+2. **Backup file.** Old machine: Backup & restore → Export (choose a backup
+   password). New machine: on the first-launch screen pick **Restore from a backup
+   file…**, enter the backup password, pick the file. This copy gets its own new
+   master password (shown once — write it down). Wallets and auto-sign rules come
+   across; phone-pairing status, address book and prefs do not.
+3. **Cloud sync** (Settings → Cloud sync, off by default). Encrypted with your
+   master password; the server stores only ciphertext. On a new machine, log in
+   and accept the restore prompt with the *old* master password. Limited to 5
+   downloads per hour per account.
+
+### Portable (thumb drive)
+
+The Windows build also produces `XRPSync-Wallet-Portable-<version>.exe`. Run it
+from the drive and it keeps its data in `XRPSyncWalletData/` next to the exe.
+On macOS/Linux, either start with `--portable` or put an empty `portable.txt`
+next to the `.app` / AppImage. In portable mode:
+
+- data folder = next to the executable (footer shows **PORTABLE**);
+- auto-update is off — replace the exe to update;
+- password recovery is off — the OS keychain belongs to the host PC;
+- everything else (encryption, bridge on port 17760, auto-sign rules) is unchanged.
+
+Lost drive = someone holds your encrypted file. The generated 24-character master
+password is built for that; a short custom one is not. Plugging into an untrusted
+PC exposes the password to that PC. Portable is convenience, not hardware-wallet
+security.
+
 ## Development
 
 ```bash

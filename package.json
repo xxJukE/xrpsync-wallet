@@ -1,6 +1,6 @@
 {
   "name": "xrpsync-wallet",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "XRPSync Wallet — XRPL desktop wallet with auto-sign for XRPSync.",
   "main": "main.js",
   "author": "XRPSync",
@@ -9,6 +9,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --inspect=5858",
+    "start:portable": "electron . --portable",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
@@ -61,9 +62,12 @@
       "output": "dist"
     },
     "win": {
-      "target": "nsis",
+      "target": ["nsis", "portable"],
       "icon": "assets/icon.ico",
       "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "XRPSync-Wallet-Portable-${version}.${ext}"
     },
     "mac": {
       "target": "dmg",
