@@ -91,10 +91,20 @@
             <div class="ttl">⤓ RESTORE FROM BACKUP FILE</div>
             <p class="mut" style="text-align:center;font-size:10px;line-height:1.6;margin:0 0 14px">
                 Pick a file exported from <b>Backup &amp; restore</b> on another XRPSync Wallet.<br>
-                Enter the <b>backup password</b> you chose when exporting — not the old master password.<br>
-                This copy gets its own new master password on the next screen.
+                Enter the <b>backup password</b> you chose when exporting — not the old master password.
             </p>
             <div class="field"><input id="genRestorePw" type="password" placeholder="backup password" autocomplete="off" /></div>
+            <label class="row" style="gap:8px;align-items:center;font-size:11px;margin:4px 0 8px;cursor:pointer">
+                <input type="checkbox" id="genRestoreOwnPw" /> Use a master password I choose (otherwise one is generated and shown once)
+            </label>
+            <div id="genRestoreOwnBlock" class="hidden">
+                <p class="mut" style="font-size:10px;line-height:1.6;margin:0 0 8px">
+                    Minimum 12 characters, with at least 3 of: lower-case, upper-case, numbers, symbols.
+                    You can reuse the master password from your other computer if it meets that bar.
+                </p>
+                <div class="field"><input id="genRestoreMaster" type="password" placeholder="master password for this copy" autocomplete="off" /></div>
+                <div class="field"><input id="genRestoreMaster2" type="password" placeholder="confirm master password" autocomplete="off" /></div>
+            </div>
             <div class="row" style="gap:8px">
                 <button id="genRestoreGo" class="btn" style="flex:1" disabled>Choose file &amp; restore</button>
                 <button id="genRestoreBack" class="btn ghost" style="flex:1" type="button">Back</button>
@@ -428,6 +438,22 @@
                         <input id="setBridgeToken" type="password" placeholder="paste token from website" />
                     </div>
                     <button class="btn" id="setSave">Save</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-h"><span class="t">CHANGE MASTER PASSWORD</span></div>
+                <div class="card-b">
+                    <p class="mut" style="font-size:10px;line-height:1.6">
+                        Re-encrypts every wallet on this copy under a new master password. Minimum 12
+                        characters, with at least 3 of: lower-case, upper-case, numbers, symbols.
+                        Other copies of the wallet (another PC, thumb drive) keep their own password.
+                    </p>
+                    <div class="field"><input id="setChpwCurrent" type="password" placeholder="current master password" autocomplete="off" /></div>
+                    <div class="field"><input id="setChpwNew" type="password" placeholder="new master password" autocomplete="off" /></div>
+                    <div class="field"><input id="setChpwNew2" type="password" placeholder="confirm new master password" autocomplete="off" /></div>
+                    <button class="btn" id="setChpwGo" disabled>Change password</button>
+                    <div id="setChpwStatus" class="mut" style="margin-top:10px;font-size:10px;min-height:14px"></div>
                 </div>
             </div>
 

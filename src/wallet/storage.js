@@ -222,9 +222,37 @@ function verifyKeyAgainstMaster(masterBlock, key) {
  * this succeeds.
  */
 async function migrateMasterToArgon2id(password) {
-    if (!argon2) throw new Error('argon2_unavailable');
     const oldKey = unlockedKey;
     if (!oldKey) throw new Error('not_unlocked');
+    await rekeyStore(oldKey, password);
+}
+
+/**
+ * Change the master password. Verifies the current one first (never trusts
+ * the in-memory unlocked state alone), then re-encrypts every wallet under a
+ * key derived from the new password + a fresh salt. Leaves the app unlocked
+ * under the new password. Strength rules are enforced by the caller (main.js).
+ */
+async function changeMasterPassword(currentPassword, newPassword) {
+    if (!newPassword || newPassword.length < 8) throw new Error('password_too_short');
+    const m = store.get('master');
+    if (!m) throw new Error('no_master_set');
+    const oldKey = await deriveKeyForMaster(m, currentPassword);
+    if (!verifyKeyAgainstMaster(m, oldKey)) throw new Error('wrong_password');
+    await rekeyStore(oldKey, newPassword);
+    failedAttempts = 0;
+}
+
+/**
+ * Decrypt every wallet with `oldKey`, derive a fresh Argon2id key from
+ * `newPassword` + a new salt, and rewrite master block + wallets atomically
+ * enough (two store.set calls back-to-back; the old ciphertexts stay valid
+ * until the master block flips). Shared by the PBKDF2→Argon2id migration and
+ * the user-facing change-password flow.
+ */
+async function rekeyStore(oldKey, newPassword) {
+    if (!argon2) throw new Error('argon2_unavailable');
+    const password = newPassword;
 
     // Decrypt every wallet seed with the old key, then re-encrypt with a new key.
     const oldWallets = store.get('wallets') || {};
@@ -233,7 +261,10 @@ async function migrateMasterToArgon2id(password) {
         try {
             decrypted[addr] = { ...w, _seed: decryptWithKey(w, oldKey) };
         } catch (e) {
-            console.warn('[storage] skip wallet during migration', addr, e?.message);
+            // Refuse rather than silently drop a wallet. With a verified key this
+            // only fires on a corrupt entry — surface it instead of losing funds.
+            console.error('[storage] wallet failed to decrypt during re-key', addr, e?.message);
+            throw new Error('wallet_decrypt_failed:' + addr);
         }
     }
 
@@ -276,6 +307,7 @@ async function migrateMasterToArgon2id(password) {
     });
     store.set('wallets', newWallets);
     unlockedKey = newKey;
+    unlockedPasswordRef = password;
 }
 
 function ensureUnlocked() {
@@ -470,6 +502,7 @@ module.exports = {
     setMasterPassword,
     unlock,
     lock,
+    changeMasterPassword,
     getUnlockedPassword,
     saveWallet,
     listWallets,

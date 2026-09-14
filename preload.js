@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('labs', {
     lock: {
         status:             ()         => invoke('lock:status'),
         firstLaunchSetup:   ()         => invoke('lock:first-launch-setup'),
-        firstLaunchRestore: (backupPassword) => invoke('lock:first-launch-restore', { backupPassword }),
+        firstLaunchRestore: (backupPassword, masterPassword) => invoke('lock:first-launch-restore', { backupPassword, masterPassword: masterPassword || null }),
         setMaster:          (password) => invoke('lock:set-master', password),
         unlock:             (password) => invoke('lock:unlock', password),
         lockNow:            ()         => invoke('lock:lock'),
@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('labs', {
         getPasswordRecovery: ()                                 => invoke('settings:get-password-recovery'),
         setPasswordRecovery: (enabled, password)                => invoke('settings:set-password-recovery', { enabled, password }),
         revealMasterPassword: (reentered)                       => invoke('settings:reveal-master-password', { reentered }),
+        changeMasterPassword: (current, next)                   => invoke('settings:change-master-password', { current, next }),
     },
 
     // ── Cloud sync ──

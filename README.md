@@ -32,13 +32,19 @@ in the data folder (Help → **Open data folder**). Three ways to move it:
    Password recovery (OS keychain) must be re-enabled if you used it.
 2. **Backup file.** Old machine: Backup & restore → Export (choose a backup
    password). New machine: on the first-launch screen pick **Restore from a backup
-   file…**, enter the backup password, pick the file. This copy gets its own new
-   master password (shown once — write it down). Wallets and auto-sign rules come
-   across; phone-pairing status, address book and prefs do not.
+   file…**, enter the backup password, pick the file. Tick **Use a master password
+   I choose** to keep a password you know (12+ chars, 3 character classes — your
+   old one qualifies if it meets that bar); otherwise one is generated and shown
+   once. Wallets and auto-sign rules come across; phone-pairing status, address
+   book and prefs do not.
 3. **Cloud sync** (Settings → Cloud sync, off by default). Encrypted with your
    master password; the server stores only ciphertext. On a new machine, log in
    and accept the restore prompt with the *old* master password. Limited to 5
    downloads per hour per account.
+
+Any copy can switch to a password you prefer later: Settings → **Change master
+password** (current password required; every wallet is re-encrypted; the cloud
+blob is re-uploaded if sync is on).
 
 ### Portable (thumb drive)
 

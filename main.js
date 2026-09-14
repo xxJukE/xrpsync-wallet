@@ -285,12 +285,9 @@ function registerIpc() {
         if (WalletStore.hasMasterPassword()) {
             return { ok: false, error: 'master_already_set' };
         }
-        // Custom password is opt-in (default flow auto-generates a strong one), so
-        // enforce a minimum strength bar: ≥12 chars and ≥3 character classes.
         const pw = String(password || '');
-        if (pw.length < 12) return { ok: false, error: 'too_short' };
-        const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(pw)).length;
-        if (classes < 3) return { ok: false, error: 'too_weak' };
+        const weak = customPasswordProblem(pw);
+        if (weak) return { ok: false, error: weak };
         await WalletStore.setMasterPassword(pw);
         markUnlocked();
         return { ok: true };
@@ -300,9 +297,16 @@ function registerIpc() {
     // throwaway master password the user then confuses with the old one.
     // Order matters: decrypt the file FIRST (a wrong backup password leaves the
     // store untouched), THEN generate the master, THEN save the wallets under it.
-    ipcMain.handle('lock:first-launch-restore', async (_e, { backupPassword } = {}) => {
+    // `masterPassword` (optional) = the user wants to keep a password they know
+    // instead of a generated one; same strength bar as the custom first-launch path.
+    ipcMain.handle('lock:first-launch-restore', async (_e, { backupPassword, masterPassword } = {}) => {
         if (WalletStore.hasMasterPassword()) return { ok: false, error: 'master_already_set' };
         if (!backupPassword) return { ok: false, error: 'backup_password_required' };
+        const custom = masterPassword ? String(masterPassword) : null;
+        if (custom) {
+            const weak = customPasswordProblem(custom);
+            if (weak) return { ok: false, error: weak };
+        }
         const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
             title: 'Open XRPSync Wallet backup',
             filters: [{ name: 'JSON', extensions: ['json'] }],
@@ -314,12 +318,32 @@ function registerIpc() {
             const blob = fs.readFileSync(filePaths[0], 'utf8');
             data = await WalletBackup.decryptBackup(blob, backupPassword);
         } catch (e) { return { ok: false, error: e.message || String(e) }; }
-        const password = WalletStore.generateMasterPassword(24);
+        const password = custom || WalletStore.generateMasterPassword(24);
         await WalletStore.setMasterPassword(password);
         markUnlocked();
         const imported = await WalletBackup.importDecrypted(data);
         BridgeServer?.broadcastWalletInfo();
-        return { ok: true, password, imported, path: filePaths[0] };
+        // Never echo a user-chosen password back to the renderer.
+        return { ok: true, password: custom ? null : password, custom: !!custom, imported, path: filePaths[0] };
+    });
+
+    // Change the master password. Requires the CURRENT password (verified in
+    // storage, not just "app is unlocked"). Re-encrypts every wallet, refreshes
+    // the keychain copy if password recovery is on, and re-uploads the cloud
+    // blob (it's keyed off the master password) when sync is enabled.
+    ipcMain.handle('settings:change-master-password', async (_e, { current, next } = {}) => {
+        if (!current || !next) return { ok: false, error: 'password_required' };
+        const weak = customPasswordProblem(String(next));
+        if (weak) return { ok: false, error: weak };
+        try { await WalletStore.changeMasterPassword(String(current), String(next)); }
+        catch (e) { return { ok: false, error: e?.message || String(e) }; }
+        markUnlocked();
+        if (keytar && WalletStore.getPref('password_recovery_enabled')) {
+            try { await keytar.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT, String(next)); }
+            catch (e) { console.warn('[main] keychain refresh after password change failed:', e?.message || e); }
+        }
+        scheduleAutoSync();
+        return { ok: true };
     });
     ipcMain.handle('lock:unlock', async (_e, password) => {
         const result = await WalletStore.unlock(password);
@@ -836,6 +860,15 @@ function ensureUnlocked() {
         const e = new Error('app_locked'); e.code = 'LOCKED'; throw e;
     }
     noteActivity();
+}
+
+// Custom master passwords (first launch, restore, change) share one strength
+// bar: ≥12 chars and ≥3 of lower/upper/digit/symbol. Returns an error code or null.
+function customPasswordProblem(pw) {
+    if (pw.length < 12) return 'too_short';
+    const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(pw)).length;
+    if (classes < 3) return 'too_weak';
+    return null;
 }
 
 // ── Cloud sync helpers ──────────────────────────────────────────────────────

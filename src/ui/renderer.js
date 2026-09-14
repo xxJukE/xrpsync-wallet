@@ -101,18 +101,31 @@ function showRestoreForm() {
     $('genChoice').classList.add('hidden');
     $('genRestore').classList.remove('hidden');
     const pw = $('genRestorePw'), go = $('genRestoreGo'), errEl = $('genRestoreErr');
-    const idle = () => { go.disabled = !pw.value; go.textContent = 'Choose file & restore'; };
-    pw.value = ''; errEl.textContent = ''; idle();
-    pw.oninput = idle;
-    pw.onkeydown = (e) => { if (e.key === 'Enter' && !go.disabled) go.click(); };
+    const own = $('genRestoreOwnPw'), ownBlock = $('genRestoreOwnBlock'), m1 = $('genRestoreMaster'), m2 = $('genRestoreMaster2');
+    const ownOk = () => !own.checked || (m1.value.length >= 12 && m1.value === m2.value);
+    const idle = () => { go.disabled = !(pw.value && ownOk()); go.textContent = 'Choose file & restore'; };
+    pw.value = ''; m1.value = ''; m2.value = ''; own.checked = false; ownBlock.classList.add('hidden');
+    errEl.textContent = ''; idle();
+    pw.oninput = idle; m1.oninput = idle; m2.oninput = idle;
+    own.onchange = () => { ownBlock.classList.toggle('hidden', !own.checked); idle(); if (own.checked) m1.focus(); };
+    const enter = (e) => { if (e.key === 'Enter' && !go.disabled) go.click(); };
+    pw.onkeydown = enter; m1.onkeydown = enter; m2.onkeydown = enter;
     $('genRestoreBack').onclick = () => { $('genRestore').classList.add('hidden'); $('genChoice').classList.remove('hidden'); };
     go.onclick = async () => {
         if (go.disabled) return;
         errEl.textContent = ''; go.disabled = true; go.textContent = 'Restoring…';
-        let r; try { r = await window.labs.lock.firstLaunchRestore(pw.value); } catch (e) { r = { ok: false, error: e?.message }; }
+        const chosen = own.checked ? m1.value : null;
+        let r; try { r = await window.labs.lock.firstLaunchRestore(pw.value, chosen); } catch (e) { r = { ok: false, error: e?.message }; }
         if (r && r.ok) {
-            pw.value = '';
+            pw.value = ''; m1.value = ''; m2.value = '';
             const n = r.imported;
+            if (r.custom) {
+                // User kept their own password — nothing to write down, go straight in.
+                closeSetup();
+                await refreshAll();
+                window.alert('Restored ' + n + ' wallet' + (n === 1 ? '' : 's') + ' from the backup file.\n\nThis copy unlocks with the master password you just chose.');
+                return;
+            }
             showGeneratedPassword(r.password,
                 'Restored ' + n + ' wallet' + (n === 1 ? '' : 's') + ' from the backup file.' +
                 (n === 0 ? ' (The file held no readable wallets.)' : '') +
@@ -125,6 +138,8 @@ function showRestoreForm() {
             : r?.error === 'invalid_backup_file' ? 'That file is not an XRPSync Wallet backup.'
             : r?.error === 'unsupported_backup_version' ? 'This backup was made by a newer wallet — update this copy first.'
             : r?.error === 'master_already_set' ? 'A master password is already set.'
+            : r?.error === 'too_short' ? 'Master password: use at least 12 characters.'
+            : r?.error === 'too_weak' ? 'Master password: use at least 3 of lower-case, upper-case, numbers, symbols.'
             : ('Restore failed: ' + (r?.error || 'unknown'));
     };
 }
@@ -1337,6 +1352,30 @@ $('setSave').addEventListener('click', async () => {
 
 // Password recovery handlers
 $('setRecToggle')?.addEventListener('change', (e) => setPasswordRecovery(e.target.checked));
+
+// ── Settings: change master password ──────────────────────────────────────
+(() => {
+    const cur = $('setChpwCurrent'), n1 = $('setChpwNew'), n2 = $('setChpwNew2'), go = $('setChpwGo'), status = $('setChpwStatus');
+    if (!cur || !n1 || !n2 || !go) return;
+    const update = () => { go.disabled = !(cur.value && n1.value.length >= 12 && n1.value === n2.value); };
+    [cur, n1, n2].forEach((el) => { el.addEventListener('input', update); el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !go.disabled) go.click(); }); });
+    go.addEventListener('click', async () => {
+        if (go.disabled) return;
+        status.textContent = 'changing…'; go.disabled = true;
+        let r; try { r = await window.labs.settings.changeMasterPassword(cur.value, n1.value); } catch (e) { r = { ok: false, error: e?.message }; }
+        if (r && r.ok) {
+            cur.value = ''; n1.value = ''; n2.value = '';
+            status.innerHTML = '<span class="fg-profit">master password changed — use the new one from now on</span>';
+            return;
+        }
+        update();
+        status.innerHTML = '<span class="fg-danger">' + (
+            r?.error === 'wrong_password' ? 'Current password is wrong.'
+            : r?.error === 'too_short' ? 'New password: use at least 12 characters.'
+            : r?.error === 'too_weak' ? 'New password: use at least 3 of lower-case, upper-case, numbers, symbols.'
+            : ('Could not change password: ' + (r?.error || 'unknown'))) + '</span>';
+    });
+})();
 $('setRecReveal')?.addEventListener('click', () => revealMasterPassword());
 $('setRecRevealCopy')?.addEventListener('click', async () => {
     const v = $('setRecRevealValue').textContent;
