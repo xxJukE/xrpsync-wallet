@@ -110,7 +110,7 @@ To force a partial failure, pair **two** accounts where one will fail (e.g. one 
 
 ---
 
-# Manual Test: Portable mode + first-launch restore (wallet 1.0.10)
+# Manual Test: Portable mode + first-launch restore (wallet 1.0.11)
 
 Headless checks (already run in the build container):
 
@@ -119,9 +119,9 @@ node --check main.js preload.js src/wallet/backup.js src/ui/renderer.js
 ```
 
 ## Portable detection
-- [ ] Run `XRPSync-Wallet-Portable-1.0.10.exe` from a thumb drive. Expect a
+- [ ] Run `XRPSync-Wallet-Portable-1.0.11.exe` from a thumb drive. Expect a
       `XRPSyncWalletData/` folder to appear next to the exe, footer reads
-      `v1.0.10 · build 2026-09-14 · PORTABLE`, Help → Open data folder opens that folder.
+      `v1.0.11 · build 2026-09-14 · PORTABLE`, Help → Open data folder opens that folder.
 - [ ] Settings → Password recovery is disabled with the "Portable copy…" note.
 - [ ] No update pill ever appears (updater log line says portable).
 - [ ] Installed (NSIS) build on the same PC keeps using `%APPDATA%\XRPSync Wallet` —
@@ -149,12 +149,12 @@ node --check main.js preload.js src/wallet/backup.js src/ui/renderer.js
 
 ## Chosen master password on restore + Change master password
 - [ ] First-launch restore with **Use a master password I choose** ticked: the
-      button stays disabled until both fields match and are ≥12 chars; an
+      button stays disabled until both fields match and are ≥10 chars; an
       all-lower-case password is rejected with the "3 of…" message; a good one
       restores straight into the wallet list (no generated-password screen) and
       the alert says it unlocks with the chosen password. Lock → unlock with it.
 - [ ] Settings → Change master password: the status line under the button says
-      live why it is disabled ("new password: 7/12 characters", "passwords do not
+      live why it is disabled ("new password: 7/10 characters", "passwords do not
       match", "needs at least 3 of…") and flips to "ready" when all three are good.
 - [ ] Settings → Change master password: wrong current → "Current password is
       wrong."; correct current + new → success line. Lock → old password fails,

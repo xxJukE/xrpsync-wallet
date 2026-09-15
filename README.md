@@ -33,7 +33,7 @@ in the data folder (Help → **Open data folder**). Three ways to move it:
 2. **Backup file.** Old machine: Backup & restore → Export (choose a backup
    password). New machine: on the first-launch screen pick **Restore from a backup
    file…**, enter the backup password, pick the file. Tick **Use a master password
-   I choose** to keep a password you know (12+ chars, 3 character classes — your
+   I choose** to keep a password you know (10+ chars, 3 character classes — your
    old one qualifies if it meets that bar); otherwise one is generated and shown
    once. Wallets and auto-sign rules come across; phone-pairing status, address
    book and prefs do not.

@@ -98,8 +98,8 @@ function showGeneratedPassword(pw, note) {
 // customPasswordProblem() so the user sees the reason live instead of a
 // silently disabled button. Returns null when the pair is good.
 function customPasswordHint(pw, confirm) {
-    if (!pw) return 'enter a new master password (12+ characters)';
-    if (pw.length < 12) return 'new password: ' + pw.length + '/12 characters';
+    if (!pw) return 'enter a new master password (10+ characters)';
+    if (pw.length < 10) return 'new password: ' + pw.length + '/10 characters';
     const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(pw)).length;
     if (classes < 3) return 'needs at least 3 of: lower-case, upper-case, numbers, symbols (has ' + classes + ')';
     if (confirm !== pw) return confirm ? 'passwords do not match' : 'confirm the new password';
@@ -154,7 +154,7 @@ function showRestoreForm() {
             : r?.error === 'invalid_backup_file' ? 'That file is not an XRPSync Wallet backup.'
             : r?.error === 'unsupported_backup_version' ? 'This backup was made by a newer wallet — update this copy first.'
             : r?.error === 'master_already_set' ? 'A master password is already set.'
-            : r?.error === 'too_short' ? 'Master password: use at least 12 characters.'
+            : r?.error === 'too_short' ? 'Master password: use at least 10 characters.'
             : r?.error === 'too_weak' ? 'Master password: use at least 3 of lower-case, upper-case, numbers, symbols.'
             : ('Restore failed: ' + (r?.error || 'unknown'));
     };
@@ -168,7 +168,7 @@ function showCustomPasswordForm() {
           submit = $('genCustomSubmit'), errEl = $('genCustomErr');
     pw.value = ''; pw2.value = ''; ack.checked = false; errEl.textContent = '';
     submit.disabled = true; submit.textContent = 'Set password';
-    const update = () => { submit.disabled = !(pw.value.length >= 12 && pw.value === pw2.value && ack.checked); };
+    const update = () => { submit.disabled = !(pw.value.length >= 10 && pw.value === pw2.value && ack.checked); };
     pw.oninput = update; pw2.oninput = update; ack.onchange = update;
     $('genCustomBack').onclick = () => { $('genCustom').classList.add('hidden'); $('genChoice').classList.remove('hidden'); };
     submit.onclick = async () => {
@@ -179,7 +179,7 @@ function showCustomPasswordForm() {
         let r; try { r = await window.labs.lock.setMaster(pw.value); } catch (e) { r = { ok: false, error: e?.message }; }
         if (r && r.ok) { pw.value = ''; pw2.value = ''; closeSetup(); await refreshAll(); return; }
         submit.disabled = false; submit.textContent = 'Set password';
-        errEl.textContent = r?.error === 'too_short' ? 'Use at least 12 characters.'
+        errEl.textContent = r?.error === 'too_short' ? 'Use at least 10 characters.'
             : r?.error === 'too_weak' ? 'Use at least 3 of: lower-case, upper-case, numbers, symbols.'
             : r?.error === 'master_already_set' ? 'A master password is already set.'
             : ('Could not set password: ' + (r?.error || 'unknown'));
@@ -1392,7 +1392,7 @@ $('setRecToggle')?.addEventListener('change', (e) => setPasswordRecovery(e.targe
         update();
         status.innerHTML = '<span class="fg-danger">' + (
             r?.error === 'wrong_password' ? 'Current password is wrong.'
-            : r?.error === 'too_short' ? 'New password: use at least 12 characters.'
+            : r?.error === 'too_short' ? 'New password: use at least 10 characters.'
             : r?.error === 'too_weak' ? 'New password: use at least 3 of lower-case, upper-case, numbers, symbols.'
             : ('Could not change password: ' + (r?.error || 'unknown'))) + '</span>';
     });

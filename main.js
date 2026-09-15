@@ -863,9 +863,10 @@ function ensureUnlocked() {
 }
 
 // Custom master passwords (first launch, restore, change) share one strength
-// bar: ≥12 chars and ≥3 of lower/upper/digit/symbol. Returns an error code or null.
+// bar: ≥10 chars (operator override 2026-09-15, was 12 — see docs/DECISIONS.md)
+// and ≥3 of lower/upper/digit/symbol. Returns an error code or null.
 function customPasswordProblem(pw) {
-    if (pw.length < 12) return 'too_short';
+    if (pw.length < 10) return 'too_short';
     const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(pw)).length;
     if (classes < 3) return 'too_weak';
     return null;
