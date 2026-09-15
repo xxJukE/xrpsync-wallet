@@ -94,6 +94,18 @@ function showGeneratedPassword(pw, note) {
     };
 }
 
+// Why a custom master password isn't acceptable yet — mirrors main.js
+// customPasswordProblem() so the user sees the reason live instead of a
+// silently disabled button. Returns null when the pair is good.
+function customPasswordHint(pw, confirm) {
+    if (!pw) return 'enter a new master password (12+ characters)';
+    if (pw.length < 12) return 'new password: ' + pw.length + '/12 characters';
+    const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(pw)).length;
+    if (classes < 3) return 'needs at least 3 of: lower-case, upper-case, numbers, symbols (has ' + classes + ')';
+    if (confirm !== pw) return confirm ? 'passwords do not match' : 'confirm the new password';
+    return null;
+}
+
 // Restore path — fresh install fed from a Backup & restore file. Main decrypts
 // the file first, then generates the master, so a wrong backup password never
 // leaves a half-set-up store behind.
@@ -102,8 +114,12 @@ function showRestoreForm() {
     $('genRestore').classList.remove('hidden');
     const pw = $('genRestorePw'), go = $('genRestoreGo'), errEl = $('genRestoreErr');
     const own = $('genRestoreOwnPw'), ownBlock = $('genRestoreOwnBlock'), m1 = $('genRestoreMaster'), m2 = $('genRestoreMaster2');
-    const ownOk = () => !own.checked || (m1.value.length >= 12 && m1.value === m2.value);
-    const idle = () => { go.disabled = !(pw.value && ownOk()); go.textContent = 'Choose file & restore'; };
+    const ownOk = () => !own.checked || !customPasswordHint(m1.value, m2.value);
+    const idle = () => {
+        go.disabled = !(pw.value && ownOk()); go.textContent = 'Choose file & restore';
+        const hint = !pw.value ? 'enter the backup password' : (own.checked ? customPasswordHint(m1.value, m2.value) : null);
+        errEl.textContent = hint || '';
+    };
     pw.value = ''; m1.value = ''; m2.value = ''; own.checked = false; ownBlock.classList.add('hidden');
     errEl.textContent = ''; idle();
     pw.oninput = idle; m1.oninput = idle; m2.oninput = idle;
@@ -1357,8 +1373,13 @@ $('setRecToggle')?.addEventListener('change', (e) => setPasswordRecovery(e.targe
 (() => {
     const cur = $('setChpwCurrent'), n1 = $('setChpwNew'), n2 = $('setChpwNew2'), go = $('setChpwGo'), status = $('setChpwStatus');
     if (!cur || !n1 || !n2 || !go) return;
-    const update = () => { go.disabled = !(cur.value && n1.value.length >= 12 && n1.value === n2.value); };
+    const update = () => {
+        const hint = !cur.value ? 'enter your current master password' : customPasswordHint(n1.value, n2.value);
+        go.disabled = !!hint;
+        status.textContent = hint || 'ready — click Change password';
+    };
     [cur, n1, n2].forEach((el) => { el.addEventListener('input', update); el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !go.disabled) go.click(); }); });
+    update();
     go.addEventListener('click', async () => {
         if (go.disabled) return;
         status.textContent = 'changing…'; go.disabled = true;
